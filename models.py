@@ -130,20 +130,21 @@ class FusionLayer(nn.Module):
 
             new_patch_size = int(((x[-1].shape[1] - 1) ** 0.5) / 2)
 
-            new_stream_shape[1] = new_patch_size ** 2 + 1
+            new_stream_shape[1] = new_patch_size ** 2
 
-            x.append(torch.zeros(new_stream_shape, device=x[0].device))
-
+            x.append(torch.empty(new_stream_shape, device=x[0].device))
+            x[-1] = torch.cat([batch_class_token, x[-1]], dim=1)
             x[-1] += self.pos_embedding[n_streams-1]
         imgs = [self.reimage(x[stream]) for stream in range(len(x))]
         for stream in range(len(x)):
             img = imgs[stream]
             outputs = []
             for t, transition in enumerate(self.transitions[stream]):
-                trans = transition(img)
-                trans = trans.reshape(n, self.stream_dims[t], -1)
-                trans = trans.permute(0, 2, 1)
-                x[t][:, 1:] += trans
+                if not isinstance(transition, nn.Identity):
+                    trans = transition(img)
+                    trans = trans.reshape(n, self.stream_dims[t], -1)
+                    trans = trans.permute(0, 2, 1)
+                    x[t][:, 1:] += trans
 
             streams.append(outputs)
 
@@ -171,11 +172,9 @@ class ViT(torch.nn.Module):
         super(ViT, self).__init__()
         image_size = img_size
         self.patch_sizes = [16, 32]
-        self.stages = ((2,),
-                       (2, 2),
-                       (2, 2),
-                       (2, 2)
-
+        self.stages = ((4,),
+                       (4, 4),
+                       (4, 4)
                        )
 
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]

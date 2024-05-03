@@ -69,8 +69,8 @@ def eval_vit(model, device, loader, n_classes):
             labels = labels.to(device)
             outputs = model(inputs)
             _, preds = torch.max(outputs, 1)
-            overall += torch.bincount(labels.to("cpu"), minlength=n_classes)
             for i, boolean in enumerate(preds == labels):
+                overall[preds[i]] += 1
                 if boolean:
                     correct[preds[i]] += 1
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
