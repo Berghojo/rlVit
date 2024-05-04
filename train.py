@@ -11,7 +11,7 @@ import numpy as np
 import random
 from tqdm import tqdm
 
-from sklearn.metrics import confusion_matrix
+
 import os
 
 
