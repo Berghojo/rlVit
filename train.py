@@ -10,6 +10,7 @@ import time
 import numpy as np
 import random
 from tqdm import tqdm
+
 from sklearn.metrics import confusion_matrix
 import os
 
@@ -28,6 +29,7 @@ def train(model_name, n_classes, max_epochs, base_model):
 
     model = ViT(n_classes, device = device)
         #model.load_state_dict(torch.load(base_model))
+    model = torch.nn.DataParallel(model)
     train_loader, test_loader = get_loader()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
     launch_time = time.strftime("%Y_%m_%d-%H_%M")
@@ -108,7 +110,7 @@ def train_vit(loader, device, model, optimizer, scaler):
 if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
-    max_epochs = 100
+    max_epochs = 300
     base = "saves/base.pth"
     model = "base"
     train(model, num_classes, max_epochs, base)
