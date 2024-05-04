@@ -17,10 +17,10 @@ class Data(Dataset):
 
 def get_loader():
     data = Data(size=224)
-    train_loader = torch.utils.data.DataLoader(data.train_set, batch_size=4,
-                                               shuffle=True, num_workers=2)
-    test_loader = torch.utils.data.DataLoader(data.test_set, batch_size=4,
-                                             shuffle=False, num_workers=2)
+    train_loader = torch.utils.data.DataLoader(data.train_set, batch_size=8,
+                                               shuffle=True, num_workers=4)
+    test_loader = torch.utils.data.DataLoader(data.test_set, batch_size=8,
+                                             shuffle=False, num_workers=4)
     return train_loader, test_loader
 
 

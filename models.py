@@ -9,6 +9,7 @@ from torch import nn
 from collections import OrderedDict
 from copy import deepcopy
 
+
 class baseViT(torch.nn.Module):
     def __init__(self, num_classes, pretrained=False, device=None):
         super(baseViT, self).__init__()
@@ -44,9 +45,10 @@ class ViT(torch.nn.Module):
         super(ViT, self).__init__()
         image_size = 224
         self.patch_sizes = [16, 32]
-        num_layers = [12, 8]
+        num_layers = [12, 10]
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
-
+        fusion_frequency = 2
+        fusions = int(num_layers[-1] / fusion_frequency) -1
         num_heads = 12
         dropout = 0.0
         attention_dropout = 0.0
@@ -99,8 +101,9 @@ class ViT(torch.nn.Module):
                 mode="nearest"
             )
         )
-        self.upsample2 = deepcopy(self.upsample)
-        self.downsample2 = deepcopy(self.downsample)
+
+        self.upsamples = nn.ModuleList([deepcopy(self.upsample) for _ in range(fusions)])
+        self.downsamples = nn.ModuleList([deepcopy(self.downsample) for _ in range(fusions)])
         self.act = nn.GELU()
         self.dropout = nn.Dropout(dropout)
         self.layers: OrderedDict[str, nn.Module] = OrderedDict()
@@ -146,7 +149,7 @@ class ViT(torch.nn.Module):
         x = torch.cat([batch_class_token, x], dim=1)
         x = x + self.pos_embedding[0]
 
-        for i in range(4):
+        for i in range(2):
             x = self.layers[f"encoder_layer_0_{i}"](x)
 
         x1 = x.permute(0, 2, 1)
@@ -162,21 +165,39 @@ class ViT(torch.nn.Module):
         x1 = torch.cat([batch_class_token, x1], dim=1)
         x1 = x1 + self.pos_embedding[1]
 
-        for i in range(4):
+        for i in range(2):
             x1 = self.layers[f"encoder_layer_1_{i}"](x1)
-            x = self.layers[f"encoder_layer_0_{i+4}"](x)
+            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
 
-        x, x1 = self.fuse(x, x1)
+        x, x1 = self.fuse(x, x1, 0)
 
-        for i in range(4, 8):
+        for i in range(2, 4):
             x1 = self.layers[f"encoder_layer_1_{i}"](x1)
-            x = self.layers[f"encoder_layer_0_{i+4}"](x)
+            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
 
-        x, x1 = self.fuse(x, x1)
-        x = x[:, 0]
+        x, x1 = self.fuse(x, x1, 1)
+
+        for i in range(4, 6):
+            x1 = self.layers[f"encoder_layer_1_{i}"](x1)
+            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
+
+        x, x1 = self.fuse(x, x1, 2)
+
+        for i in range(6, 8):
+            x1 = self.layers[f"encoder_layer_1_{i}"](x1)
+            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
+
+        x, x1 = self.fuse(x, x1, 3)
+
+        for i in range(8, 10):
+            x1 = self.layers[f"encoder_layer_1_{i}"](x1)
+            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
+
+        x = torch.cat([x[:, 0], x1[:, 0]], dim=1)
+        x = self.head(x)
         return x
 
-    def fuse(self, x1, x2):
+    def fuse(self, x1, x2, iteration):
         n = x1.shape[0]
         down = x1.permute(0, 2, 1)
         patch_size = down[:, :, 1:].shape[2]
@@ -184,39 +205,25 @@ class ViT(torch.nn.Module):
 
         down = down[:, :, 1:].reshape(n, -1, patch_size, patch_size)
 
-        down = self.downsample2(down)
+        down = self.downsamples[iteration](down)
 
         down = down.reshape(n, self.hidden_dims[1], -1)
         down = down.permute(0, 2, 1)
-
-
 
         up = x2.permute(0, 2, 1)
         patch_size = up[:, :, 1:].shape[2]
         patch_size = int((patch_size) ** 0.5)
 
         up = up[:, :, 1:].reshape(n, -1, patch_size, patch_size)
-        up = self.upsample2(up)
+        up = self.upsamples[iteration](up)
 
         up = up.reshape(n, self.hidden_dims[0], -1)
         up = up.permute(0, 2, 1)
 
-
-        x2[:, 1:] = self.act(x2[:, 1:]+down)
-        x1[:, 1:] = self.act(x1[:, 1:]+up)
-
+        x2[:, 1:] = self.act(x2[:, 1:] + down)
+        x1[:, 1:] = self.act(x1[:, 1:] + up)
 
         return x1, x2
-
-
-
-
-
-
-
-
-
-
 
 
 class Agent(torch.nn.Module):
