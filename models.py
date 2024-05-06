@@ -6,6 +6,7 @@ from torchvision.models.vision_transformer import vit_b_16, ViT_B_16_Weights, Vi
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 from functools import partial
 from torch import nn
+import numpy as np
 from collections import OrderedDict
 from copy import deepcopy
 
@@ -40,19 +41,147 @@ class baseViT(torch.nn.Module):
         return x
 
 
+class ParallelEncoder(nn.Module):
+    def __init__(self, stage, num_heads, hidden_dims, mlp_dim, dropout, attention_dropout, norm_layer):
+        super(ParallelEncoder, self).__init__()
+        self.encoder_blocks = nn.ModuleList()
+        for e, layers in enumerate(stage):
+            encoder = OrderedDict()
+            for l in range(layers):
+                encoder[f'encoder_{e}_{l}'] = EncoderBlock(
+                    num_heads,
+                    hidden_dims[e],
+                    mlp_dim,
+                    dropout,
+                    attention_dropout,
+                    norm_layer,
+                )
+            self.encoder_blocks.append(nn.Sequential(encoder))
+
+    def forward(self, x):
+        for stream, encoder in enumerate(self.encoder_blocks):
+            x[stream] = encoder(x[stream])
+
+        return x
+
+
+class FusionLayer(nn.Module):
+    def __init__(self, stage, stream_dims, pos_embedding, class_token):
+        super(FusionLayer, self).__init__()
+        self.stage = stage
+        self.transitions = nn.ModuleList()
+        self.pos_embedding = pos_embedding
+        self.class_token = class_token
+        self.act = nn.GELU()
+        self.stream_dims = stream_dims
+        for i in range(len(stage)):
+            first = nn.ModuleList()
+            for j in range(len(stage)):
+                if i == j:
+                    first.append(nn.Identity())
+                elif i < j:
+                    first.append(nn.Sequential(nn.Conv2d(stream_dims[i], stream_dims[i], kernel_size=2 * (j - i),
+                                                         stride=2 * (j - i),
+                                                         dilation=1,
+                                                         padding=0,
+                                                         groups=stream_dims[i],
+                                                         bias=False,
+                                                         ),
+                                               nn.BatchNorm2d(stream_dims[i]),
+                                               nn.Conv2d(
+                                                   stream_dims[i],
+                                                   stream_dims[j],
+                                                   kernel_size=1,
+                                                   stride=1,
+                                                   dilation=1,
+                                                   padding=0,
+                                                   groups=1,
+                                                   bias=True,
+                                               ),
+                                               nn.BatchNorm2d(stream_dims[j]),
+                                               ))
+                else:
+                    first.append(nn.Sequential(nn.Conv2d(
+                        stream_dims[i],
+                        stream_dims[j],
+                        kernel_size=1,
+                        stride=1,
+                        dilation=1,
+                        padding=0,
+                        groups=1,
+                        bias=True,
+                    ),
+                        nn.BatchNorm2d(stream_dims[j]),
+                        nn.Upsample(
+                            scale_factor=2 * (i - j),
+                            mode="nearest"
+                        )
+                    ))
+            self.transitions.append(first)
+
+    def forward(self, x):
+        n_streams = len(self.stage)
+        streams = []
+        n = x[0].shape[0]
+        for stream in range(len(x)):
+            img = self.reimage(x[stream])
+
+            outputs = []
+            for t, transition in enumerate(self.transitions[stream]):
+
+                trans = transition(img)
+                outputs.append(trans)
+
+            streams.append(outputs)
+
+        summed = streams[0]
+        for s in streams:
+            for i in range(1, n_streams):
+                summed[i] += s[i]
+
+        for i in range(n_streams):
+            #
+            summed[i] = summed[i].reshape(n, self.stream_dims[i], -1)
+            summed[i] = summed[i].permute(0, 2, 1)
+            activated = nn.functional.gelu(summed[i].clone())
+            if i >= len(x):
+                batch_class_token = self.class_token[i].expand(n, -1, -1)
+                activated = torch.cat([batch_class_token, activated], dim=1)
+
+                new = activated + self.pos_embedding[i]
+                x.append(new)
+            else:
+
+                x[i][:, 1:] = activated
+        return x
+
+
+    def reimage(self, x):
+        n = x.shape[0]
+        x = x.permute(0, 2, 1)
+        patch_size = x[:, :, 1:].shape[2]
+        patch_size = int((patch_size) ** 0.5)
+        x = x[:, :, 1:].reshape(n, -1, patch_size, patch_size)
+        return x
+
+
 class ViT(torch.nn.Module):
-    def __init__(self, num_classes, device=None):
+    def __init__(self, num_classes, device=None, img_size=248):
         super(ViT, self).__init__()
-        image_size = 224
-        self.patch_sizes = [16, 32]
-        num_layers = [12, 10]
+        image_size = img_size
+        self.patch_sizes = [8, 16, 32]
+        self.stages = ((4,),
+                       (4, 4),
+                       (4, 4, 4))
+
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
-        fusion_frequency = 2
-        fusions = int(num_layers[-1] / fusion_frequency) -1
+        base_size = 384
         num_heads = 12
-        dropout = 0.0
-        attention_dropout = 0.0
-        self.hidden_dims = [768, int(768 * 2)]
+        dropout = 0.1
+        attention_dropout = 0.1
+        self.hidden_dims = [base_size] + [int(base_size * 2 * i) for i in range(1, len(self.patch_sizes)
+                                                                                )]
+        print(self.hidden_dims)
         mlp_dim = 3072
         proj_layers = [nn.Conv2d(
             in_channels=3, out_channels=hidden_dim, kernel_size=size, stride=size
@@ -65,60 +194,14 @@ class ViT(torch.nn.Module):
 
         self.class_token = nn.ParameterList([nn.Parameter(torch.zeros(1, 1, hd)) for hd in self.hidden_dims])
 
-        self.downsample = nn.Sequential(nn.Conv2d(self.hidden_dims[0], self.hidden_dims[0], kernel_size=2,
-                                                  stride=2,
-                                                  dilation=1,
-                                                  padding=0,
-                                                  groups=self.hidden_dims[0],
-                                                  bias=False,
-                                                  ),
-                                        nn.BatchNorm2d(self.hidden_dims[0]),
-                                        nn.Conv2d(
-                                            self.hidden_dims[0],
-                                            self.hidden_dims[1],
-                                            kernel_size=1,
-                                            stride=1,
-                                            dilation=1,
-                                            padding=0,
-                                            groups=1,
-                                            bias=True,
-                                        ),
-                                        nn.BatchNorm2d(self.hidden_dims[1]),
-                                        )
-        self.upsample = nn.Sequential(nn.Conv2d(
-            self.hidden_dims[1],
-            self.hidden_dims[0],
-            kernel_size=1,
-            stride=1,
-            dilation=1,
-            padding=0,
-            groups=1,
-            bias=True,
-        ),
-            nn.BatchNorm2d(self.hidden_dims[0]),
-            nn.Upsample(
-                scale_factor=2,
-                mode="nearest"
-            )
-        )
-
-        self.upsamples = nn.ModuleList([deepcopy(self.upsample) for _ in range(fusions)])
-        self.downsamples = nn.ModuleList([deepcopy(self.downsample) for _ in range(fusions)])
-        self.act = nn.GELU()
         self.dropout = nn.Dropout(dropout)
-        self.layers: OrderedDict[str, nn.Module] = OrderedDict()
-        for e, hidden_dim in enumerate(self.hidden_dims):
-            for i in range(num_layers[e]):
-                self.layers[f"encoder_layer_{e}_{i}"] = EncoderBlock(
-                    num_heads,
-                    hidden_dim,
-                    mlp_dim,
-                    dropout,
-                    attention_dropout,
-                    norm_layer,
-                ).to(device)
+        self.parallel_encoders = nn.ModuleList(
+            [ParallelEncoder(s, num_heads, self.hidden_dims, mlp_dim, dropout, attention_dropout, norm_layer) for s in
+             self.stages])
+        self.fusion_layers = nn.ModuleList([FusionLayer(s, self.hidden_dims, self.pos_embedding, self.class_token) for s in self.stages[1:]])
 
         self.head = torch.nn.Linear(sum(self.hidden_dims), num_classes)  # Used 768 from Documentation
+
 
     def _process_input(self, x: torch.Tensor, p: int, i) -> torch.Tensor:
         n, c, h, w = x.shape
@@ -141,59 +224,19 @@ class ViT(torch.nn.Module):
 
     def forward(self, input):
         x = self._process_input(input, self.patch_sizes[0], 0)
-        x2 = self._process_input(input, self.patch_sizes[1], 1)
 
         n = x.shape[0]
         # Expand the class token to the full batch
         batch_class_token = self.class_token[0].expand(n, -1, -1)
         x = torch.cat([batch_class_token, x], dim=1)
         x = x + self.pos_embedding[0]
+        x = [x]
+        for e, stage in enumerate(self.stages):
+            x = self.parallel_encoders[e](x)
+            if e != len(self.stages) - 1:
+                x = self.fusion_layers[e](x)
 
-        for i in range(2):
-            x = self.layers[f"encoder_layer_0_{i}"](x)
-
-        x1 = x.permute(0, 2, 1)
-        patch_size = x1[:, :, 1:].shape[2]
-        patch_size = int((patch_size) ** 0.5)
-        x1 = x1[:, :, 1:].reshape(n, -1, patch_size, patch_size)
-
-        x1 = self.downsample(x1)
-        x1 = x1.reshape(n, self.hidden_dims[1], -1)
-        x1 = x1.permute(0, 2, 1)
-        batch_class_token = self.class_token[1].expand(n, -1, -1)
-
-        x1 = torch.cat([batch_class_token, x1], dim=1)
-        x1 = x1 + self.pos_embedding[1]
-
-        for i in range(2):
-            x1 = self.layers[f"encoder_layer_1_{i}"](x1)
-            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
-
-        x, x1 = self.fuse(x, x1, 0)
-
-        for i in range(2, 4):
-            x1 = self.layers[f"encoder_layer_1_{i}"](x1)
-            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
-
-        x, x1 = self.fuse(x, x1, 1)
-
-        for i in range(4, 6):
-            x1 = self.layers[f"encoder_layer_1_{i}"](x1)
-            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
-
-        x, x1 = self.fuse(x, x1, 2)
-
-        for i in range(6, 8):
-            x1 = self.layers[f"encoder_layer_1_{i}"](x1)
-            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
-
-        x, x1 = self.fuse(x, x1, 3)
-
-        for i in range(8, 10):
-            x1 = self.layers[f"encoder_layer_1_{i}"](x1)
-            x = self.layers[f"encoder_layer_0_{i + 2}"](x)
-
-        x = torch.cat([x[:, 0], x1[:, 0]], dim=1)
+        x = torch.cat([el[:, 0] for el in x], dim=1)
         x = self.head(x)
         return x
 

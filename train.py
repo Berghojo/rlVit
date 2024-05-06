@@ -24,11 +24,13 @@ def set_deterministic(seed=2408):
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
 
 
-def train(model_name, n_classes, max_epochs, base_model):
+def train(model_name, n_classes, max_epochs, base_model=None):
+    #torch.autograd.set_detect_anomaly(True)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     model = ViT(n_classes, device = device)
-        #model.load_state_dict(torch.load(base_model))
+    if base_model:
+        model.load_state_dict(torch.load(base_model))
     model = torch.nn.DataParallel(model)
     train_loader, test_loader = get_loader()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
@@ -39,6 +41,7 @@ def train(model_name, n_classes, max_epochs, base_model):
     model.to(device)
     best_acc = 0
     for epoch in range(max_epochs):
+
         loss, acc = train_vit(train_loader, device, model, optimizer, scaler)
         class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes)
         print('[Test] ACC: {:.4f}'.format(accuracy))
@@ -57,8 +60,8 @@ def summarize(writer, split, epoch, acc, loss=None):
 
 def eval_vit(model, device, loader, n_classes):
     model.eval()
-    correct = [0] * n_classes
-    overall = [0] * n_classes
+    correct = torch.zeros(n_classes)
+    overall = torch.zeros(n_classes)
     with torch.no_grad():
         for inputs, labels in tqdm(loader):
             inputs = inputs.to(device)
@@ -66,8 +69,8 @@ def eval_vit(model, device, loader, n_classes):
             labels = labels.to(device)
             outputs = model(inputs)
             _, preds = torch.max(outputs, 1)
-            for i, boolean in enumerate(preds == labels.data):
-                overall[preds[i]] += 1
+            overall += torch.bincount(labels.to("cpu"), minlength=n_classes)
+            for i, boolean in enumerate(preds == labels):
                 if boolean:
                     correct[preds[i]] += 1
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
@@ -100,8 +103,6 @@ def train_vit(loader, device, model, optimizer, scaler):
 
         if counter % 1000 == 0:
             print(correct / n_items)
-            correct = 0
-            n_items = 0
         counter += 1
 
     return running_loss, correct / n_items
@@ -111,6 +112,7 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = "saves/base.pth"
+    base = "saves/hr.pth"
+    base = None
     model = "base"
     train(model, num_classes, max_epochs, base)
