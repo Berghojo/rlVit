@@ -53,12 +53,12 @@ class Data(Dataset):
 
 def get_loader():
 
-    train_data = Data(size=248, split="train")
-    test_data = Data(size=248, split="test")
+    train_data = Data(size=64, split="train")
+    test_data = Data(size=64, split="test")
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=8,
-                                               shuffle=True, num_workers=2)
+                                               shuffle=True, num_workers=4)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=8,
-                                             shuffle=False, num_workers=2)
+                                             shuffle=False, num_workers=4)
 
     return train_loader, test_loader
 

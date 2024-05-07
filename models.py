@@ -123,59 +123,59 @@ class FusionLayer(nn.Module):
         n_streams = len(self.stage)
         streams = []
         n = x[0].shape[0]
-        for stream in range(len(x)):
-            img = self.reimage(x[stream])
 
+        if n_streams > len(x):
+            batch_class_token = self.class_token[n_streams-1].expand(n, -1, -1)
+            new_stream_shape = list(batch_class_token.shape)
+
+            new_patch_size = int(((x[-1].shape[1] - 1) ** 0.5) / 2)
+
+            new_stream_shape[1] = new_patch_size ** 2 + 1
+
+            x.append(torch.zeros(new_stream_shape, device=x[0].device))
+
+            x[-1] += self.pos_embedding[n_streams-1]
+        imgs = [self.reimage(x[stream]) for stream in range(len(x))]
+        for stream in range(len(x)):
+            img = imgs[stream]
             outputs = []
             for t, transition in enumerate(self.transitions[stream]):
-
                 trans = transition(img)
-                outputs.append(trans)
+                trans = trans.reshape(n, self.stream_dims[t], -1)
+                trans = trans.permute(0, 2, 1)
+                x[t][:, 1:] += trans
 
             streams.append(outputs)
 
-        summed = streams[0]
-        for s in streams:
-            for i in range(1, n_streams):
-                summed[i] += s[i]
-
-        for i in range(n_streams):
-            #
-            summed[i] = summed[i].reshape(n, self.stream_dims[i], -1)
-            summed[i] = summed[i].permute(0, 2, 1)
-            activated = nn.functional.gelu(summed[i].clone())
-            if i >= len(x):
-                batch_class_token = self.class_token[i].expand(n, -1, -1)
-                activated = torch.cat([batch_class_token, activated], dim=1)
-
-                new = activated + self.pos_embedding[i]
-                x.append(new)
-            else:
-
-                x[i][:, 1:] = activated
+        for i in range(len(x)):
+            x[i] = self.act(x[i])
         return x
 
 
     def reimage(self, x):
         n = x.shape[0]
+
         x = x.permute(0, 2, 1)
         patch_size = x[:, :, 1:].shape[2]
         patch_size = int((patch_size) ** 0.5)
-        x = x[:, :, 1:].reshape(n, -1, patch_size, patch_size)
-        return x
+
+        out = x[:, :, 1:].reshape(n, -1, patch_size, patch_size)
+        return out
 
 
 class ViT(torch.nn.Module):
-    def __init__(self, num_classes, device=None, img_size=248):
+    def __init__(self, num_classes, device=None, img_size=64):
         super(ViT, self).__init__()
         image_size = img_size
-        self.patch_sizes = [8, 16, 32]
+        self.patch_sizes = [16, 32, 64]
         self.stages = ((4,),
                        (4, 4),
-                       (4, 4, 4))
+                       (2, 2),
+                       (2, 2, 2),
+                       )
 
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
-        base_size = 384
+        base_size = 384 * 2
         num_heads = 12
         dropout = 0.1
         attention_dropout = 0.1

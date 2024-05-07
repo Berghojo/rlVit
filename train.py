@@ -27,7 +27,7 @@ def set_deterministic(seed=2408):
 def train(model_name, n_classes, max_epochs, base_model=None):
     #torch.autograd.set_detect_anomaly(True)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+    torch.cuda.empty_cache()
     model = ViT(n_classes, device = device)
     if base_model:
         model.load_state_dict(torch.load(base_model))
@@ -101,7 +101,7 @@ def train_vit(loader, device, model, optimizer, scaler):
         n_items += inputs.size(0)
         running_loss += loss.item() * inputs.size(0)
 
-        if counter % 1000 == 0:
+        if counter % 1000 == 999:
             print(correct / n_items)
         counter += 1
 
