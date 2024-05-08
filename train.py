@@ -33,7 +33,7 @@ def train(model_name, n_classes, max_epochs, base_model=None):
         model.load_state_dict(torch.load(base_model))
     model = torch.nn.DataParallel(model)
     train_loader, test_loader = get_loader()
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=8e-4, weight_decay=0.1)
     launch_time = time.strftime("%Y_%m_%d-%H_%M")
     writer = SummaryWriter(log_dir='logs/' + model_name + launch_time)
 

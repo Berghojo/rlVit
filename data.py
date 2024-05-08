@@ -40,7 +40,7 @@ class Data(Dataset):
     def __getitem__(self, idx):
         image, label = self.set[idx]
         image = self.resize(image)
-        if self.split == "train":
+        if self.split == "train" and False:
             choices = np.random.random_sample(size=len(self.train_transform))
             for i, t in enumerate(self.train_transform):
                 trans, prob = t
@@ -53,8 +53,8 @@ class Data(Dataset):
 
 def get_loader():
 
-    train_data = Data(size=64, split="train")
-    test_data = Data(size=64, split="test")
+    train_data = Data(size=224, split="train")
+    test_data = Data(size=224, split="test")
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=8,
                                                shuffle=True, num_workers=4)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=8,

@@ -164,14 +164,18 @@ class FusionLayer(nn.Module):
 
 
 class ViT(torch.nn.Module):
-    def __init__(self, num_classes, device=None, img_size=64):
+
+
+    def __init__(self, num_classes, device=None, img_size=224):
+
         super(ViT, self).__init__()
         image_size = img_size
-        self.patch_sizes = [16, 32, 64]
-        self.stages = ((4,),
-                       (4, 4),
+        self.patch_sizes = [16, 32]
+        self.stages = ((2,),
                        (2, 2),
-                       (2, 2, 2),
+                       (2, 2),
+                       (2, 2)
+
                        )
 
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
