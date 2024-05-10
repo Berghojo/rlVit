@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
-from models import ViT
-from data import get_loader
+from models import *
+from data import *
 import torch
-import torchvision
 from torch.cuda.amp import GradScaler
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
@@ -28,12 +26,13 @@ def train(model_name, n_classes, max_epochs, base_model=None):
     #torch.autograd.set_detect_anomaly(True)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     torch.cuda.empty_cache()
-    model = ViT(n_classes, device = device)
+
+    model = ViT(n_classes, device=device)
     if base_model:
         model.load_state_dict(torch.load(base_model))
     model = torch.nn.DataParallel(model)
     train_loader, test_loader = get_loader()
-    optimizer = optim.Adam(model.parameters(), lr=8e-4, weight_decay=0.1)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
     launch_time = time.strftime("%Y_%m_%d-%H_%M")
     writer = SummaryWriter(log_dir='logs/' + model_name + launch_time)
 
@@ -48,7 +47,7 @@ def train(model_name, n_classes, max_epochs, base_model=None):
         print(f'[Test] CLASS ACC: {class_accuracy}')
         summarize(writer, "test", epoch, accuracy)
         if accuracy > best_acc:
-            torch.save(model.state_dict(), f"saves/best_{model_name}_@{launch_time}.pth")
+            torch.save(model.state_dict(), f"best_{model_name}_@{launch_time}.pth")
         summarize(writer,"train", epoch, acc, loss)
 
     raise NotImplementedError
@@ -69,8 +68,8 @@ def eval_vit(model, device, loader, n_classes):
             labels = labels.to(device)
             outputs = model(inputs)
             _, preds = torch.max(outputs, 1)
+            overall += torch.bincount(labels.to("cpu"), minlength=n_classes)
             for i, boolean in enumerate(preds == labels):
-                overall[preds[i]] += 1
                 if boolean:
                     correct[preds[i]] += 1
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
@@ -101,7 +100,7 @@ def train_vit(loader, device, model, optimizer, scaler):
         n_items += inputs.size(0)
         running_loss += loss.item() * inputs.size(0)
 
-        if counter % 1000 == 999:
+        if counter % 1000 == 0:
             print(correct / n_items)
         counter += 1
 
@@ -112,7 +111,7 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = "saves/hr.pth"
+    base = "First.pth"
     base = None
     model = "base"
     train(model, num_classes, max_epochs, base)

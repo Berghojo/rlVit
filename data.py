@@ -1,4 +1,3 @@
-from typing import Literal, Sequence
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 import torchvision
@@ -40,7 +39,7 @@ class Data(Dataset):
     def __getitem__(self, idx):
         image, label = self.set[idx]
         image = self.resize(image)
-        if self.split == "train" and False:
+        if self.split == "train":
             choices = np.random.random_sample(size=len(self.train_transform))
             for i, t in enumerate(self.train_transform):
                 trans, prob = t
@@ -61,5 +60,3 @@ def get_loader():
                                              shuffle=False, num_workers=4)
 
     return train_loader, test_loader
-
-
