@@ -3,7 +3,6 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 from torchvision.models.vision_transformer import vit_b_16, ViT_B_16_Weights, VisionTransformer, EncoderBlock
-from typing import Any, Callable, Dict, List, NamedTuple, Optional
 from functools import partial
 from torch import nn
 import numpy as np
@@ -145,14 +144,14 @@ class ViT(torch.nn.Module):
         self.patch_sizes = [16, 32]
         self.stages = ((4, ),
                        (4, 4),
-                       (4, 4),
+                       (4, 4)
                        )
         print(self.stages)
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
         base_size = 384 * 2
         num_heads = 12
-        dropout = 0
-        attention_dropout = 0
+        dropout = 0.1
+        attention_dropout = 0.1
         self.hidden_dims = [base_size] + [int(base_size * 2 * i) for i in range(1, len(self.patch_sizes)
                                                                                 )]
         print(self.hidden_dims)
@@ -178,18 +177,18 @@ class ViT(torch.nn.Module):
 
         self.head = torch.nn.Linear(sum(self.hidden_dims), num_classes)
         if pretrained:
-            self.backbone = vit_b_16(pretrained=True)
+            backbone = vit_b_16(pretrained=True)
             print('Loading pretrained weights...')
             start = 0
             end = 0
             for e, s in enumerate(self.stages):
                 end += s[0]
                 print("Copying Layers: ", start, end)
-                self.parallel_encoders[e].encoder_blocks[0] = deepcopy(self.backbone.encoder.layers[start:end])
+                self.parallel_encoders[e].encoder_blocks[0] = deepcopy(backbone.encoder.layers[start:end])
                 start += s[0]
-            self.pos_embedding[0] = deepcopy(self.backbone.encoder.pos_embedding)
-            self.proj_layer = deepcopy(self.backbone.conv_proj)
-            self.class_token[0] = deepcopy(self.backbone.class_token)
+            self.pos_embedding[0] = deepcopy(backbone.encoder.pos_embedding)
+            self.proj_layer = deepcopy(backbone.conv_proj)
+            self.class_token[0] = deepcopy(backbone.class_token)
 
 
 
@@ -228,7 +227,7 @@ class ViT(torch.nn.Module):
         x, x1 = self.fusion_layers[1](x)
 
         x = [x, x1]
-        x, x_1 = self.parallel_encoders[2](x)
+        x, x1 = self.parallel_encoders[2](x)
 
         x = torch.cat([x[:, 0], x1[:, 0]], dim=1)
         x = self.head(x)

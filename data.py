@@ -19,16 +19,17 @@ class Data(Dataset):
         if split =="train":
             self.flip = transforms.RandomHorizontalFlip(0.1)
 
-            self.train_transform = [(transforms.RandomCrop(int(size * 0.9)), 0.2), (transforms.RandomHorizontalFlip(1), 0.1),
-                                    (transforms.ColorJitter(
-                                        brightness=0.5, contrast=1, saturation=0.1, hue=0.5), 0.2),
+            self.train_transform = [(transforms.RandomCrop(int(size * 0.9)), 0.5), (transforms.RandomHorizontalFlip(1), 0.5),
+                                    (transforms.RandomVerticalFlip(1), 0.5),
                                     (transforms.RandomRotation(
                                         degrees=20
-                                    ),  0.2),
-                                    (transforms.RandomAffine(0, shear=10, scale=(0.8, 1.2)), 0.1),
+                                    ),  0.5)
+
                                     ]
             self.set = torchvision.datasets.CIFAR10(root='./data', train=True,
                                                 download=True)
+
+
         else:
             self.set = torchvision.datasets.CIFAR10(root='./data', train=False,
                                                download=True)
@@ -54,9 +55,9 @@ def get_loader():
 
     train_data = Data(size=224, split="train")
     test_data = Data(size=224, split="test")
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=8,
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=16,
                                                shuffle=True, num_workers=4)
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=8,
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=16,
                                              shuffle=False, num_workers=4)
 
     return train_loader, test_loader
