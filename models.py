@@ -33,6 +33,7 @@ class ParallelEncoder(nn.Module):
         for stream, encoder in enumerate(self.encoder_blocks):
             x[stream] = self.ln[stream](encoder(self.dropout(x[stream])))
 
+
         return x
 
 
@@ -154,7 +155,8 @@ class ViT(torch.nn.Module):
         dropout = 0.1
         attention_dropout = 0.1
         self.hidden_dims = [base_size] + [int(base_size * 2 * i) for i in range(1, len(self.patch_sizes)
-                                                                                )]
+                                                                    )]
+        self.logsoft = nn.LogSoftmax(dim=-1)
         print(self.hidden_dims)
         mlp_dim = 3072
 
@@ -219,12 +221,13 @@ class ViT(torch.nn.Module):
         x = x + self.pos_embedding[i]
 
         if permutation is not None:
+
             dark_patch = self.dark_patch.expand(n, -1, -1)
             x = torch.cat([x, dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
-            x[:, 1:-1] = torch.gather(x[:, 1:], 1, expanded_permutations)
+            new_img = torch.gather(x[:, 1:], 1, expanded_permutations)
 
-            x[:, 1:-1] = x[:, 1:-1] + self.pos_encoder[0](x[:, 1:-1])
+            x[:, 1:-1] = x[:, 1:-1] + self.pos_encoder[0](new_img)
 
 
             x = x[:, :-1]

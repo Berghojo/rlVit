@@ -25,7 +25,7 @@ def set_deterministic(seed=2408):
 
 
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True):
-    #torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -63,9 +63,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True):
     train_agent = True
     for epoch in range(max_epochs):
         if reinforce:
-
-            loss, acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
             loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False)
+            loss, acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
+
 
 
         else:
@@ -132,6 +132,7 @@ def train_vit(loader, device, model, optimizer, scaler):
         optimizer.zero_grad()
         with torch.autocast(device_type='cuda', dtype=torch.float16):
 
+
             outputs = model(inputs, None)
             _, preds = torch.max(outputs, 1)
             loss = criterion(outputs, labels)
@@ -185,15 +186,17 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
             dist = Categorical(prob)
             action = dist.sample()
             outputs = model(inputs, action.detach())
-        probs, preds = torch.max(outputs, 1)
-        rewards = (preds == labels).long()
-        if train_agent:
-            log_prob = dist.log_prob(action)
-            values = get_values(rewards, dist.log_prob(action))
-            loss = torch.mean((-log_prob) * values)
+            probs, preds = torch.max(outputs, 1)
+            rewards = (preds == labels).long()
+            if train_agent:
+                log_prob = dist.log_prob(action)
+                values = get_values(rewards, dist.log_prob(action))
+                loss = torch.mean((-log_prob) * values)
 
-        else:
-            loss = criterion(outputs, labels)
+            else:
+
+                loss = criterion(outputs, labels)
+
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
