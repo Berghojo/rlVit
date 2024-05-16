@@ -170,7 +170,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
     correct = 0
     n_items = 0
     running_loss = 0
-
+    best_acc = 0
+    unchanged = 0
     counter = 0
     for inputs, labels in tqdm(loader):
         inputs = inputs.to(device)
@@ -202,7 +203,15 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
 
         if counter % 100 == 99:
             print(f'Reinforce_Loss {loss}')
-            print(correct / n_items)
+            acc = correct / n_items
+            print(acc)
+            if acc > best_acc+0.001:
+                best_acc = acc
+                unchanged = 0
+            else:
+                unchanged += 1
+                if unchanged > 10:
+                    break
         counter += 1
 
     return running_loss, correct / n_items
