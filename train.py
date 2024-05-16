@@ -28,7 +28,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True):
     #torch.autograd.set_detect_anomaly(True)
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.cuda.empty_cache()
     train_loader, test_loader = get_loader()
     if reinforce:

@@ -19,7 +19,7 @@ class PositionalEncoding1D(nn.Module):
         channels = int(np.ceil(channels / 2) * 2)
         self.channels = channels
         inv_freq = 1.0 / (10000 ** (torch.arange(0, channels, 2).float() / channels))
-        self.register_buffer("inv_freq", inv_freq.to(device))
+        self.register_buffer("inv_freq", inv_freq)
         self.register_buffer("cached_penc", None, persistent=False)
 
     def forward(self, tensor):
@@ -38,7 +38,7 @@ class PositionalEncoding1D(nn.Module):
 
         pos_x = torch.arange(x, device=tensor.device, dtype=self.inv_freq.dtype)
 
-        sin_inp_x = torch.einsum("i,j->ij", pos_x, self.inv_freq)
+        sin_inp_x = torch.einsum("i,j->ij", pos_x, self.inv_freq.to(tensor.device))
         emb_x = get_emb(sin_inp_x)
         emb = torch.zeros((x, self.channels), device=tensor.device, dtype=tensor.dtype)
         emb[:, : self.channels] = emb_x
