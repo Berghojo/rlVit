@@ -8,6 +8,7 @@ from torch import nn
 import numpy as np
 from collections import OrderedDict
 from copy import deepcopy
+from util import PositionalEncodingPermute1D
 
 
 class ParallelEncoder(nn.Module):
@@ -84,7 +85,7 @@ class FusionLayer(nn.Module):
                         nn.BatchNorm2d(stream_dims[j]),
                         nn.Upsample(
                             scale_factor=2 * (i - j),
-                            mode="nearest"
+                            mode="bilinear"
                         )
                     ))
             self.transitions.append(first)
@@ -125,7 +126,6 @@ class FusionLayer(nn.Module):
 
     def reimage(self, x):
         n = x.shape[0]
-
         x = x.permute(0, 2, 1)
         patch_size = x[:, :, 1:].shape[2]
         patch_size = int((patch_size) ** 0.5)
@@ -137,7 +137,7 @@ class FusionLayer(nn.Module):
 class ViT(torch.nn.Module):
 
 
-    def __init__(self, num_classes, device=None, img_size=224, pretrained=True):
+    def __init__(self, num_classes, device=None, img_size=224, pretrained=True, reinforce=True):
 
         super(ViT, self).__init__()
         image_size = img_size
@@ -149,6 +149,7 @@ class ViT(torch.nn.Module):
         print(self.stages)
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
         base_size = 384 * 2
+        self.reinforce = reinforce
         num_heads = 12
         dropout = 0.1
         attention_dropout = 0.1
@@ -166,14 +167,14 @@ class ViT(torch.nn.Module):
                               seq_length, hidden_dim in zip(seq_lens, self.hidden_dims)]  # from BERT
         self.pos_embedding = nn.ParameterList(self.pos_embedding)
 
+        self.pos_encoder = [PositionalEncodingPermute1D(size, device) for size in self.hidden_dims]
         self.class_token = nn.ParameterList([nn.Parameter(torch.zeros(1, 1, hd)) for hd in self.hidden_dims])
-
+        self.dark_patch = nn.Parameter(torch.zeros(1, 1, self.hidden_dims[0]))
         self.dropout = nn.Dropout(dropout)
         self.parallel_encoders = nn.ModuleList(
             [ParallelEncoder(s, num_heads, self.hidden_dims, mlp_dim, dropout, attention_dropout, norm_layer) for s in
              self.stages])
         self.fusion_layers = nn.ModuleList([FusionLayer(s, self.hidden_dims, self.pos_embedding, self.class_token) for s in self.stages[1:]])
-
 
         self.head = torch.nn.Linear(sum(self.hidden_dims), num_classes)
         if pretrained:
@@ -193,7 +194,7 @@ class ViT(torch.nn.Module):
 
 
 
-    def _process_input(self, x: torch.Tensor, p: int, i) -> torch.Tensor:
+    def _process_input(self, x: torch.Tensor, p: int, i, permutation=None) -> torch.Tensor:
         n, c, h, w = x.shape
 
         n_h = h // p
@@ -214,24 +215,40 @@ class ViT(torch.nn.Module):
 
         batch_class_token = self.class_token[i].expand(n, -1, -1)
         x = torch.cat([batch_class_token, x], dim=1)
+
         x = x + self.pos_embedding[i]
+
+        if permutation is not None:
+            dark_patch = self.dark_patch.expand(n, -1, -1)
+            x = torch.cat([x, dark_patch], dim=1)
+            expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
+            x[:, 1:-1] = torch.gather(x[:, 1:], 1, expanded_permutations)
+
+            x[:, 1:-1] = x[:, 1:-1] + self.pos_encoder[0](x[:, 1:-1])
+
+
+            x = x[:, :-1]
+
+
         return x
 
-    def forward(self, input):
-        x = self._process_input(input, self.patch_sizes[0], 0)
+    def get_patch_embedding(self, x: torch.Tensor) -> torch.Tensor:
+        x = self._process_input(x, self.patch_sizes[0], 0)
+        return x
+    def forward(self, x, permutation):
 
-        x = self.parallel_encoders[0]([x])
-        x = self.fusion_layers[0](x)
+        x = self._process_input(x, self.patch_sizes[0], 0, permutation)
 
-        x = self.parallel_encoders[1](x)
-        x, x1 = self.fusion_layers[1](x)
+        x = self.fusion_layers[0](self.parallel_encoders[0]([x]))
 
-        x = [x, x1]
+        x = self.fusion_layers[1](self.parallel_encoders[1](x))
+
         x, x1 = self.parallel_encoders[2](x)
 
         x = torch.cat([x[:, 0], x1[:, 0]], dim=1)
         x = self.head(x)
         return x
+
 
 
     def fuse(self, x1, x2, iteration):
@@ -263,7 +280,4 @@ class ViT(torch.nn.Module):
         return x1, x2
 
 
-class Agent(torch.nn.Module):
-    def __init__(self, n_patches):
-        super(Agent, self).__init__()
-        actor = n_patches ** 2
+

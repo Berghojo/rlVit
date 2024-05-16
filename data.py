@@ -23,7 +23,9 @@ class Data(Dataset):
                                     (transforms.RandomVerticalFlip(1), 0.5),
                                     (transforms.RandomRotation(
                                         degrees=20
-                                    ),  0.5)
+                                    ),  0.5),
+                                    (transforms.RandomAffine(0, shear=10, scale=(0.8, 1.2)), 0.5),
+                                    (transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2), 0.5)
 
                                     ]
             self.set = torchvision.datasets.CIFAR10(root='./data', train=True,
