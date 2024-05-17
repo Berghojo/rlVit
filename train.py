@@ -24,7 +24,7 @@ def set_deterministic(seed=2408):
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
 
 
-def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True):
+def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True):
     #torch.autograd.set_detect_anomaly(True)
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
@@ -33,14 +33,14 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True):
     train_loader, test_loader = get_loader()
     if reinforce:
         print("Reinforce")
-        agent = Agent(196)
+        agent = Agent(196, pretrained=pretrained)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
         agent_optimizer = optim.RMSprop(agent.parameters(), lr=0.00025)
     else:
         agent = None
     if base_model:
-        model = ViT(n_classes, device=device, pretrained=True, reinforce=reinforce)
+        model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
         model = torch.nn.DataParallel(model)
         model.load_state_dict(torch.load(base_model), strict=False)
 
@@ -50,7 +50,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True):
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @{-1}')
     else:
-        model = ViT(n_classes, device=device, pretrained=True, reinforce=reinforce)
+        model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
         model = torch.nn.DataParallel(model)
         model = model.to(device)
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
@@ -240,6 +240,7 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = "saves/checkpoint.pth"
+    base = None #"saves/checkpoint.pth"
     model = "rl_learning"
-    train(model, num_classes, max_epochs, base, reinforce=True)
+    pretrained = False
+    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=False)

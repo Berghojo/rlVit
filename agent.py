@@ -4,12 +4,12 @@ import torch
 
 from copy import deepcopy
 class Agent(nn.Module):
-    def __init__(self, n_patches):
+    def __init__(self, n_patches, pretrained):
         super(Agent, self).__init__()
         self.n_actions = n_patches+1
         self.hidden_dim = 768
         back = vit_b_16(pretrained=True)
-        self.backbone = deepcopy(back.encoder)
+        self.backbone = deepcopy(back.pretrained)
         self.head1 = nn.Linear(in_features=768, out_features=self.n_actions)
         self.head2 = (nn.Linear(in_features=768, out_features=1))
         self.softmax = nn.LogSoftmax(dim=-1)
