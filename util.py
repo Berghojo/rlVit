@@ -10,7 +10,7 @@ def get_emb(sin_inp):
     emb = torch.stack((sin_inp.sin(), sin_inp.cos()), dim=-1)
     return torch.flatten(emb, -2, -1)
 class PositionalEncoding1D(nn.Module):
-    def __init__(self, channels, device):
+    def __init__(self, channels):
         """
         :param channels: The last dimension of the tensor you want to apply pos emb to.
         """
@@ -48,12 +48,12 @@ class PositionalEncoding1D(nn.Module):
 
 
 class PositionalEncodingPermute1D(nn.Module):
-    def __init__(self, channels, device):
+    def __init__(self, channels):
         """
         Accepts (batchsize, ch, x) instead of (batchsize, x, ch)
         """
         super(PositionalEncodingPermute1D, self).__init__()
-        self.penc = PositionalEncoding1D(channels, device)
+        self.penc = PositionalEncoding1D(channels)
 
     def forward(self, tensor):
         tensor = tensor.permute(0, 2, 1)
