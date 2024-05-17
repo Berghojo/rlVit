@@ -8,8 +8,8 @@ class Agent(nn.Module):
         super(Agent, self).__init__()
         self.n_actions = n_patches+1
         self.hidden_dim = 768
-        back = vit_b_16(pretrained=True)
-        self.backbone = deepcopy(back.pretrained)
+        back = vit_b_16(pretrained=pretrained)
+        self.backbone = deepcopy(back.encoder)
         self.head1 = nn.Linear(in_features=768, out_features=self.n_actions)
         self.head2 = (nn.Linear(in_features=768, out_features=1))
         self.softmax = nn.LogSoftmax(dim=-1)
