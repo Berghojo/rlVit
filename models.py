@@ -169,7 +169,7 @@ class ViT(torch.nn.Module):
                               seq_length, hidden_dim in zip(seq_lens, self.hidden_dims)]  # from BERT
         self.pos_embedding = nn.ParameterList(self.pos_embedding)
 
-        self.pos_encoder = [PositionalEncodingPermute1D(size) for size in self.hidden_dims]
+        self.pos_encoder = nn.ModuleList([PositionalEncodingPermute1D(size) for size in self.hidden_dims])
         self.class_token = nn.ParameterList([nn.Parameter(torch.zeros(1, 1, hd)) for hd in self.hidden_dims])
         self.dark_patch = nn.Parameter(torch.zeros(1, 1, self.hidden_dims[0]))
         self.dropout = nn.Dropout(dropout)
@@ -227,7 +227,7 @@ class ViT(torch.nn.Module):
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
             new_img = torch.gather(x[:, 1:], 1, expanded_permutations)
 
-            x[:, 1:-1] = x[:, 1:-1] + self.pos_encoder[0](new_img).to(x.device)
+            x[:, 1:-1] = x[:, 1:-1] + self.pos_encoder[0](new_img)
 
 
             x = x[:, :-1]

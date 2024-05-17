@@ -240,6 +240,6 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = "saves/baseline.pth"
+    base = "saves/checkpoint.pth"
     model = "rl_learning"
     train(model, num_classes, max_epochs, base, reinforce=True)
