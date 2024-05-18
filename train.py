@@ -64,8 +64,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     for epoch in range(max_epochs):
         if reinforce:
 
-            loss, acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
             loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False)
+            loss, acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
+
 
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler)

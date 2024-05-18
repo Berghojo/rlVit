@@ -240,14 +240,16 @@ class ViT(torch.nn.Module):
 
         x = self._process_input(x, self.patch_sizes[0], 0, permutation)
 
-        x = self.fusion_layers[0](self.parallel_encoders[0]([x]))
+        x = [x]
+        for i in range(len(self.parallel_encoders)-1):
+            x = self.fusion_layers[i](self.parallel_encoders[i](x))
 
-        x = self.fusion_layers[1](self.parallel_encoders[1](x))
 
-        x, x1 = self.parallel_encoders[2](x)
 
-        x = torch.cat([x[:, 0], x1[:, 0]], dim=1)
-        x = self.head(x)
+        x = self.parallel_encoders[-1](x)
+
+        x = torch.cat(x, dim=1)
+        x = self.head(x[:, 0])
         return x
 
 
