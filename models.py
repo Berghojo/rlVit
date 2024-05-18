@@ -142,10 +142,8 @@ class ViT(torch.nn.Module):
 
         super(ViT, self).__init__()
         image_size = img_size
-        self.patch_sizes = [16, 32]
-        self.stages = ((4, ),
-                       (4, 4),
-                       (4, 4)
+        self.patch_sizes = [16]
+        self.stages = ((12, ),
                        )
         print(self.stages)
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
