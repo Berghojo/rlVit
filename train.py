@@ -63,8 +63,8 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     train_agent = True
     for epoch in range(max_epochs):
         if reinforce:
-
-            loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False)
+            if epoch < 50:
+                loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False)
             loss, acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
 
 
@@ -204,12 +204,11 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
         n_items += inputs.size(0)
         running_loss += loss.item() * inputs.size(0)
 
+
         if counter % 100 == 99:
             print(f'Reinforce_Loss {loss}')
             acc = correct / n_items
             print(acc)
-            if acc > best_acc+0.001:
-                best_acc = acc
 
         counter += 1
 
