@@ -56,7 +56,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
     launch_time = time.strftime("%Y_%m_%d-%H_%M")
     writer = SummaryWriter(log_dir='logs/' + model_name + launch_time)
-    scheduler = optim.lr_scheduler.ExponentialLR(model_optimizer, gamma=0.9)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(model_optimizer, max_epochs)
     scaler = GradScaler()
 
     best_acc = 0
