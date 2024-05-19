@@ -78,7 +78,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
             best_acc = accuracy
 
             torch.save(model.state_dict(), f"saves/best_{model_name}_@{launch_time}.pth")
-            torch.save(agent.state_dict(), f"saves/best_{model_name}_{agent}_@{launch_time}.pth")
+            torch.save(agent.state_dict(), f"saves/best_{model_name}_agent_@{launch_time}.pth")
         summarize(writer,"train", epoch, acc, loss)
 
         scheduler.step(epoch)
