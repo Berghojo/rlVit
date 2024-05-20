@@ -29,10 +29,10 @@ class ParallelEncoder(nn.Module):
             self.encoder_blocks.append(nn.Sequential(encoder))
         self.ln = nn.ModuleList([norm_layer(hd) for hd in hidden_dims])
         self.dropout = nn.Dropout(dropout)
+
     def forward(self, x):
         for stream, encoder in enumerate(self.encoder_blocks):
             x[stream] = self.ln[stream](encoder(self.dropout(x[stream])))
-
 
         return x
 
@@ -94,7 +94,6 @@ class FusionLayer(nn.Module):
     def forward(self, x):
         x = list(x)
         n_streams = len(self.stage)
-        streams = []
         n = x[0].shape[0]
 
         new_stream = None
@@ -108,22 +107,21 @@ class FusionLayer(nn.Module):
                     trans = trans.reshape(n, self.stream_dims[t], -1)
                     trans = trans.permute(0, 2, 1)
                     if t < len(x):
-                      x[t][:, 1:] = x[t][:, 1:] + trans
+                        x[t][:, 1:] = x[t][:, 1:] + trans
                     else:
-                      if new_stream is None:
-                        new_stream = trans
-                      else:
-                        new_stream = new_stream + trans
+                        if new_stream is None:
+                            new_stream = trans
+                        else:
+                            new_stream = new_stream + trans
         if new_stream is not None:
-          batch_class_token = self.class_token[n_streams-1].expand(n, -1, -1)
-          new_stream = torch.cat([batch_class_token, new_stream], dim=1)
-          new_stream = new_stream + self.pos_embedding[n_streams-1]
-          x.append(new_stream)
+            batch_class_token = self.class_token[n_streams - 1].expand(n, -1, -1)
+            new_stream = torch.cat([batch_class_token, new_stream], dim=1)
+            new_stream = new_stream + self.pos_embedding[n_streams - 1]
+            x.append(new_stream)
 
         for i in range(len(x)):
             x[i] = self.act(x[i])
         return x
-
 
     def reimage(self, x):
         n = x.shape[0]
@@ -136,7 +134,6 @@ class FusionLayer(nn.Module):
 
 
 class ViT(torch.nn.Module):
-
 
     def __init__(self, num_classes, device=None, img_size=224, pretrained=True, reinforce=True):
 
@@ -156,8 +153,7 @@ class ViT(torch.nn.Module):
         dropout = 0.1
         attention_dropout = 0.1
         self.hidden_dims = [base_size] + [int(base_size * 2 * i) for i in range(1, len(self.patch_sizes)
-                                                                    )]
-
+                                                                                )]
 
         mlp_dim = 3072
 
@@ -177,7 +173,8 @@ class ViT(torch.nn.Module):
         self.parallel_encoders = nn.ModuleList(
             [ParallelEncoder(s, num_heads, self.hidden_dims, mlp_dim, dropout, attention_dropout, norm_layer) for s in
              self.stages])
-        self.fusion_layers = nn.ModuleList([FusionLayer(s, self.hidden_dims, self.pos_embedding, self.class_token) for s in self.stages[1:]])
+        self.fusion_layers = nn.ModuleList(
+            [FusionLayer(s, self.hidden_dims, self.pos_embedding, self.class_token) for s in self.stages[1:]])
 
         self.head = torch.nn.Linear(sum(self.hidden_dims), num_classes)
         if pretrained:
@@ -193,9 +190,6 @@ class ViT(torch.nn.Module):
             self.pos_embedding[0] = deepcopy(backbone.encoder.pos_embedding)
             self.proj_layer = deepcopy(backbone.conv_proj)
             self.class_token[0] = deepcopy(backbone.class_token)
-
-
-
 
     def _process_input(self, x: torch.Tensor, p: int, i, permutation=None) -> torch.Tensor:
         n, c, h, w = x.shape
@@ -213,16 +207,13 @@ class ViT(torch.nn.Module):
         # where S is the source sequence length, N is the batch size, E is the
         # embedding dimension
 
-
         x = x.permute(0, 2, 1)
 
         batch_class_token = self.class_token[i].expand(n, -1, -1)
 
-
         #
 
         if permutation is not None:
-
             dark_patch = self.dark_patch.expand(n, -1, -1)
             x = torch.cat([x, dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
@@ -237,6 +228,7 @@ class ViT(torch.nn.Module):
     def get_patch_embedding(self, x: torch.Tensor) -> torch.Tensor:
         x = self._process_input(x, self.patch_sizes[0], 0)
         return x
+
     def forward(self, x, permutation):
 
         x = self._process_input(x, self.patch_sizes[0], 0, permutation)
@@ -265,8 +257,6 @@ class ViT(torch.nn.Module):
         # x = self.head(x)
         # return x
 
-
-
     def fuse(self, x1, x2, iteration):
         n = x1.shape[0]
         down = x1.permute(0, 2, 1)
@@ -294,6 +284,3 @@ class ViT(torch.nn.Module):
         x1[:, 1:] = self.act(x1[:, 1:] + up)
 
         return x1, x2
-
-
-

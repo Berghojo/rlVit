@@ -37,14 +37,14 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
         agent_optimizer = optim.RMSprop(agent.parameters(), lr=0.00025)
-        if agent_model:
+        if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
     else:
         agent = None
     if base_model:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
         model = torch.nn.DataParallel(model)
-        model.load_state_dict(torch.load(base_model))
+        model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
         # print("Running base evaluation")
@@ -139,8 +139,6 @@ def train_vit(loader, device, model, optimizer, scaler):
         labels = labels.to(device)
         optimizer.zero_grad()
         with torch.autocast(device_type='cuda', dtype=torch.float16):
-
-
             outputs = model(inputs, None)
             _, preds = torch.max(outputs, 1)
             loss = criterion(outputs, labels)
@@ -151,7 +149,7 @@ def train_vit(loader, device, model, optimizer, scaler):
         n_items += inputs.size(0)
         running_loss += loss.item() * inputs.size(0)
 
-        if counter % 1000 == 999:
+        if counter % 100 == 99:
             print(correct / n_items)
         counter += 1
 
@@ -226,11 +224,11 @@ def get_values(reward, log_probs, values):
     gamma = 0.9
     pos_reward = 1
     neg_reward = -1
-    reward[reward == 1] = 1
-    reward[reward == 0] = 1
+    reward[reward == 1] = pos_reward
+    reward[reward == 0] = neg_reward
     val = torch.zeros_like(log_probs)
     val[:, -1] = reward
-    val[val == 0] = -0.01
+    val[val == 0] = 0
     batch_size, seq_len = val.shape
     # Create a discount factors tensor [1, gamma, gamma^2, ..., gamma^(seq_len-1)]
     discount_factors = gamma ** torch.arange(seq_len, dtype=torch.float32, device=val.device)
@@ -249,8 +247,8 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = None #"saves/check_best.pth"
+    base = "saves/baseline.pth"
     model = "rl_learning"
     pretrained = True
     agent = None #"saves/agent_check_best.pth"
-    train(model, num_classes, max_epochs, base, reinforce=False, pretrained=pretrained)
+    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained)
