@@ -157,7 +157,7 @@ class ViT(torch.nn.Module):
         attention_dropout = 0.1
         self.hidden_dims = [base_size] + [int(base_size * 2 * i) for i in range(1, len(self.patch_sizes)
                                                                     )]
-        self.logsoft = nn.LogSoftmax(dim=-1)
+
 
         mlp_dim = 3072
 
