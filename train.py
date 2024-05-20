@@ -24,8 +24,8 @@ def set_deterministic(seed=2408):
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
 
 
-def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True):
-    #torch.autograd.set_detect_anomaly(True)
+def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None):
+    torch.autograd.set_detect_anomaly(True)
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -37,22 +37,27 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
         agent_optimizer = optim.RMSprop(agent.parameters(), lr=0.00025)
+        if agent_model:
+            agent.load_state_dict(torch.load(agent_model))
     else:
         agent = None
     if base_model:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
         model = torch.nn.DataParallel(model)
-        model.load_state_dict(torch.load(base_model), strict=False)
+        model.load_state_dict(torch.load(base_model))
 
         model = model.to(device)
         # print("Running base evaluation")
-        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes)
+        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent)
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @{-1}')
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
         model = torch.nn.DataParallel(model)
         model = model.to(device)
+
+
+
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
     launch_time = time.strftime("%Y_%m_%d-%H_%M")
     writer = SummaryWriter(log_dir='logs/' + model_name + launch_time)
@@ -63,9 +68,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     train_agent = True
     for epoch in range(max_epochs):
         if reinforce:
-            if epoch < 50:
-                loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False)
+
+            loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False)
             loss, acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
+
+
 
 
         else:
@@ -100,10 +107,8 @@ def eval_vit(model, device, loader, n_classes, agent):
             labels = labels.to(device)
             if agent is not None:
                 q_table, values = agent(inputs)
-                prob = torch.exp(q_table)
-                dist = Categorical(prob)
-                action = dist.sample()
-                outputs = model(inputs, action.detach())
+                action = torch.argmax(q_table, dim=-1)
+                outputs = model(inputs, action)
             else:
                 outputs = model(inputs, None)
             _, preds = torch.max(outputs, 1)
@@ -112,6 +117,12 @@ def eval_vit(model, device, loader, n_classes, agent):
                 overall[preds[i]] += 1
                 if boolean:
                     correct[preds[i]] += 1
+    test_input, _ = next(iter(loader))
+    test_input = torch.unsqueeze(test_input[0], 0)
+    q_table, values = agent(test_input)
+    f = open("permutation.txt", "a")
+    action = torch.argmax(q_table, dim=-1)
+    print(list(action), file=f)
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
     accuracy = sum(correct) / sum(overall)
     print(correct)
@@ -171,8 +182,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
     correct = 0
     n_items = 0
     running_loss = 0
-    best_acc = 0
-    unchanged = 0
+
     counter = 0
     for inputs, labels in tqdm(loader):
         inputs = inputs.to(device)
@@ -217,6 +227,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
 
 def get_values(reward, log_probs):
     gamma = 0.9
+    reward[reward == 1] = 1
     val = torch.zeros_like(log_probs)
     val[:, -1] = reward
     val[val == 0] = -0.01
@@ -231,8 +242,6 @@ def get_values(reward, log_probs):
     q_values = torch.flip(torch.cumsum(torch.flip(discounted_rewards, dims=[1]), dim=1), dims=[1])
 
     # Normalize by dividing by the discount_factors to undo the initial scaling
-    q_values = q_values / discount_factors.unsqueeze(0)
-
     return q_values
 
 
@@ -240,7 +249,8 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = None #"saves/checkpoint.pth"
+    base = "saves/check_best.pth"
     model = "rl_learning"
     pretrained = False
+    agent = "saves/agent_check_best.pth"
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=False)

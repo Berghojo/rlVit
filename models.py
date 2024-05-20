@@ -142,11 +142,14 @@ class ViT(torch.nn.Module):
 
         super(ViT, self).__init__()
         image_size = img_size
-        self.patch_sizes = [16]
-        self.stages = ((12, ),
+        self.patch_sizes = [16, 32]
+        self.stages = ((4,),
+                       (4, 4),
+                       (4, 4),
                        )
         print(self.stages)
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
+
         base_size = 384 * 2
         self.reinforce = reinforce
         num_heads = 12
@@ -155,7 +158,7 @@ class ViT(torch.nn.Module):
         self.hidden_dims = [base_size] + [int(base_size * 2 * i) for i in range(1, len(self.patch_sizes)
                                                                     )]
         self.logsoft = nn.LogSoftmax(dim=-1)
-        print(self.hidden_dims)
+
         mlp_dim = 3072
 
         self.proj_layer = nn.Conv2d(
@@ -214,23 +217,20 @@ class ViT(torch.nn.Module):
         x = x.permute(0, 2, 1)
 
         batch_class_token = self.class_token[i].expand(n, -1, -1)
-        x = torch.cat([batch_class_token, x], dim=1)
 
-        x = x + self.pos_embedding[i]
+
+        #x = x + self.pos_embedding[i]
 
         if permutation is not None:
 
             dark_patch = self.dark_patch.expand(n, -1, -1)
             x = torch.cat([x, dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
-            new_img = torch.gather(x[:, 1:], 1, expanded_permutations)
+            new_img = torch.gather(x, 1, expanded_permutations)
+            x = new_img
 
-            x[:, 1:-1] = x[:, 1:-1] + self.pos_encoder[0](new_img)
-
-
-            x = x[:, :-1]
-
-
+        x = torch.cat([batch_class_token, x], dim=1)
+        x = x + self.pos_encoder[0](x)
         return x
 
     def get_patch_embedding(self, x: torch.Tensor) -> torch.Tensor:
@@ -240,17 +240,29 @@ class ViT(torch.nn.Module):
 
         x = self._process_input(x, self.patch_sizes[0], 0, permutation)
 
-        x = [x]
-        for i in range(len(self.parallel_encoders)-1):
-            x = self.fusion_layers[i](self.parallel_encoders[i](x))
+        x = self.parallel_encoders[0]([x])
+        x = self.fusion_layers[0](x)
 
+        x = self.parallel_encoders[1](x)
+        x, x1 = self.fusion_layers[1](x)
 
+        x = [x, x1]
+        x, x1 = self.parallel_encoders[2](x)
 
-        x = self.parallel_encoders[-1](x)
-
-        x = torch.cat(x, dim=1)
-        x = self.head(x[:, 0])
+        x = torch.cat([x[:, 0], x1[:, 0]], dim=1)
+        x = self.head(x)
         return x
+
+        # x = self._process_input(x, self.patch_sizes[0], 0, permutation)
+        #
+        # x = [x]
+        # for i in range(len(self.parallel_encoders)-1):
+        #     x = self.fusion_layers[i](self.parallel_encoders[i](x))
+        #
+        # x = self.parallel_encoders[-1](x)
+        # x = torch.cat([stream[:, 0] for stream in x], dim=1)
+        # x = self.head(x)
+        # return x
 
 
 
