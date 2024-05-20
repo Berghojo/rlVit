@@ -25,7 +25,7 @@ def set_deterministic(seed=2408):
 
 
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None):
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -65,15 +65,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     scaler = GradScaler()
 
     best_acc = 0
-    train_agent = True
+
     for epoch in range(max_epochs):
         if reinforce:
 
             loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False)
-            loss, acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
-
-
-
+            agent_loss, agent_acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
+            summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler)
@@ -87,14 +85,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
             torch.save(model.state_dict(), f"saves/best_{model_name}_@{launch_time}.pth")
             torch.save(agent.state_dict(), f"saves/best_{model_name}_agent_@{launch_time}.pth")
         summarize(writer,"train", epoch, acc, loss)
-
         scheduler.step(epoch)
 
 
 def summarize(writer, split, epoch, acc, loss=None):
     writer.add_scalar('accuracy/'+ split, acc, epoch)
     if loss:
-        writer.add_scalar('CE_Loss/' + split, loss, epoch)
+        writer.add_scalar('Loss/' + split, loss, epoch)
 
 def eval_vit(model, device, loader, n_classes, agent):
     model.eval()
@@ -225,9 +222,12 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
     return running_loss, correct / n_items
 
 
-def get_values(reward, log_probs):
+def get_values(reward, log_probs, values):
     gamma = 0.9
+    pos_reward = 1
+    neg_reward = -1
     reward[reward == 1] = 1
+    reward[reward == 0] = 1
     val = torch.zeros_like(log_probs)
     val[:, -1] = reward
     val[val == 0] = -0.01
@@ -249,8 +249,8 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = "saves/check_best.pth"
+    base = None #"saves/check_best.pth"
     model = "rl_learning"
-    pretrained = False
-    agent = "saves/agent_check_best.pth"
-    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=False)
+    pretrained = True
+    agent = None #"saves/agent_check_best.pth"
+    train(model, num_classes, max_epochs, base, reinforce=False, pretrained=pretrained)
