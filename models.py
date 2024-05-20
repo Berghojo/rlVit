@@ -219,7 +219,7 @@ class ViT(torch.nn.Module):
         batch_class_token = self.class_token[i].expand(n, -1, -1)
 
 
-        #x = x + self.pos_embedding[i]
+        #
 
         if permutation is not None:
 
@@ -231,6 +231,7 @@ class ViT(torch.nn.Module):
 
         x = torch.cat([batch_class_token, x], dim=1)
         x = x + self.pos_encoder[0](x)
+        x = x + self.pos_embedding[i]
         return x
 
     def get_patch_embedding(self, x: torch.Tensor) -> torch.Tensor:
