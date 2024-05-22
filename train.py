@@ -10,7 +10,7 @@ from torch.distributions.categorical import Categorical
 from agent import *
 from models import *
 from data import *
-
+from util import CustomLoss
 
 import os
 
@@ -48,7 +48,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(device)
         # print("Running base evaluation")
-        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent)
+        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None)
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @{-1}')
     else:
@@ -70,11 +70,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         if reinforce:
 
             loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False)
+
             agent_loss, agent_acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
             summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler)
+        summarize(writer, "train", epoch, acc, loss)
         class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent)
         print('[Test] ACC: {:.4f} '.format(accuracy))
         print(f'[Test] CLASS ACC: {class_accuracy} @{epoch}')
@@ -83,8 +85,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
             best_acc = accuracy
 
             torch.save(model.state_dict(), f"saves/best_{model_name}_@{launch_time}.pth")
-            torch.save(agent.state_dict(), f"saves/best_{model_name}_agent_@{launch_time}.pth")
-        summarize(writer,"train", epoch, acc, loss)
+            if agent is not None:
+                torch.save(agent.state_dict(), f"saves/best_{model_name}_agent_@{launch_time}.pth")
+
         scheduler.step(epoch)
 
 
@@ -104,7 +107,9 @@ def eval_vit(model, device, loader, n_classes, agent):
             labels = labels.to(device)
             if agent is not None:
                 q_table, values = agent(inputs)
-                action = torch.argmax(q_table, dim=-1)
+                prob = torch.exp(q_table)
+                dist = Categorical(prob)
+                action = dist.sample()
                 outputs = model(inputs, action)
             else:
                 outputs = model(inputs, None)
@@ -114,12 +119,14 @@ def eval_vit(model, device, loader, n_classes, agent):
                 overall[preds[i]] += 1
                 if boolean:
                     correct[preds[i]] += 1
-    test_input, _ = next(iter(loader))
-    test_input = torch.unsqueeze(test_input[0], 0)
-    q_table, values = agent(test_input)
-    f = open("permutation.txt", "a")
-    action = torch.argmax(q_table, dim=-1)
-    print(list(action), file=f)
+    if agent is not None:
+        test_input, _ = next(iter(loader))
+        test_input = torch.unsqueeze(test_input[0], 0)
+        q_table, values = agent(test_input)
+        f = open("permutation.txt", "a")
+        values, action = torch.max(q_table, dim=-1)
+        print(list(action), file=f)
+        print(list(values), file=f)
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
     accuracy = sum(correct) / sum(overall)
     print(correct)
@@ -157,7 +164,7 @@ def train_vit(loader, device, model, optimizer, scaler):
 
 def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
     criterion = torch.nn.CrossEntropyLoss()
-
+    loss_func = CustomLoss().to(device)
     if train_agent:
         model.eval()
         agent.train()
@@ -192,11 +199,10 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
             action = dist.sample()
             outputs = model(inputs, action.detach())
             probs, preds = torch.max(outputs, 1)
-            rewards = (preds == labels).long()
+
             if train_agent:
-                log_prob = dist.log_prob(action)
-                values = get_values(rewards, dist.log_prob(action))
-                loss = torch.mean((-log_prob) * values)
+                rewards = (preds == labels).long()
+                loss = loss_func(torch.exp(dist.log_prob(action)), values, rewards, prob)
 
             else:
 
@@ -220,35 +226,15 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
     return running_loss, correct / n_items
 
 
-def get_values(reward, log_probs, values):
-    gamma = 0.9
-    pos_reward = 1
-    neg_reward = -1
-    reward[reward == 1] = pos_reward
-    reward[reward == 0] = neg_reward
-    val = torch.zeros_like(log_probs)
-    val[:, -1] = reward
-    val[val == 0] = 0
-    batch_size, seq_len = val.shape
-    # Create a discount factors tensor [1, gamma, gamma^2, ..., gamma^(seq_len-1)]
-    discount_factors = gamma ** torch.arange(seq_len, dtype=torch.float32, device=val.device)
 
-    # Calculate discounted rewards by multiplying rewards with discount_factors
-    discounted_rewards = val * discount_factors.unsqueeze(0)
-
-    # Compute cumulative sums in reverse to get the Q-values
-    q_values = torch.flip(torch.cumsum(torch.flip(discounted_rewards, dims=[1]), dim=1), dims=[1])
-
-    # Normalize by dividing by the discount_factors to undo the initial scaling
-    return q_values
 
 
 if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = "saves/baseline.pth"
-    model = "rl_learning"
+    base = None #"saves/model_test.pth"
+    model = "advantage"
     pretrained = True
-    agent = None #"saves/agent_check_best.pth"
+    agent = None #"saves/agent_test.pth"
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained)

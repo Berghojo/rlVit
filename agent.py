@@ -40,5 +40,5 @@ class Agent(nn.Module):
         x = self._process_input(x, 16)
         x = self.backbone(x)
         table = self.softmax(self.head1(x[:, 1:]))
-        values = self.head2(x)
+        values = self.head2(x[:, 1:])
         return table, values

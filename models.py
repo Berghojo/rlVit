@@ -225,9 +225,6 @@ class ViT(torch.nn.Module):
         x = x + self.pos_embedding[i]
         return x
 
-    def get_patch_embedding(self, x: torch.Tensor) -> torch.Tensor:
-        x = self._process_input(x, self.patch_sizes[0], 0)
-        return x
 
     def forward(self, x, permutation):
 
@@ -257,30 +254,3 @@ class ViT(torch.nn.Module):
         # x = self.head(x)
         # return x
 
-    def fuse(self, x1, x2, iteration):
-        n = x1.shape[0]
-        down = x1.permute(0, 2, 1)
-        patch_size = down[:, :, 1:].shape[2]
-        patch_size = int((patch_size) ** 0.5)
-
-        down = down[:, :, 1:].reshape(n, -1, patch_size, patch_size)
-
-        down = self.downsamples[iteration](down)
-
-        down = down.reshape(n, self.hidden_dims[1], -1)
-        down = down.permute(0, 2, 1)
-
-        up = x2.permute(0, 2, 1)
-        patch_size = up[:, :, 1:].shape[2]
-        patch_size = int((patch_size) ** 0.5)
-
-        up = up[:, :, 1:].reshape(n, -1, patch_size, patch_size)
-        up = self.upsamples[iteration](up)
-
-        up = up.reshape(n, self.hidden_dims[0], -1)
-        up = up.permute(0, 2, 1)
-
-        x2[:, 1:] = self.act(x2[:, 1:] + down)
-        x1[:, 1:] = self.act(x1[:, 1:] + up)
-
-        return x1, x2
