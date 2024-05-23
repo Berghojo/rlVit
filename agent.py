@@ -25,7 +25,7 @@ class Agent(nn.Module):
         n_w = w // p
 
         # (n, c, h, w) -> (n, hidden_dim, n_h, n_w)
-        x = self.proj_layer(x)
+        x = self.proj_layer(x).detach()
         # (n, hidden_dim, n_h, n_w) -> (n, hidden_dim, (n_h * n_w))
         x = x.reshape(n, self.hidden_dim, n_h * n_w)
 
@@ -41,8 +41,6 @@ class Agent(nn.Module):
     def freeze(self, freeze):
         for param in self.parameters():
             param.requires_grad = freeze
-        for param in self.backbone.parameters():
-            param.requires_grad = False
         for param in self.proj_layer.parameters():
             param.requires_grad = False
 

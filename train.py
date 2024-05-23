@@ -8,13 +8,13 @@ import random
 import gc
 from tqdm import tqdm
 from torch.distributions.categorical import Categorical
-from agent import *
-from models import *
-from data import *
-from util import CustomLoss
 
 import os
 
+from util import CustomLoss
+from agent import *
+from models import *
+from data import *
 
 def set_deterministic(seed=2408):
     # settings based on https://pytorch.org/docs/stable/notes/randomness.html   Stand 2021
@@ -22,11 +22,13 @@ def set_deterministic(seed=2408):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
+    os.environ[
+        "CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
 
 
-def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None, verbose=True, img_size=224):
-    #torch.autograd.set_detect_anomaly(True)
+def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None,
+          verbose=True, img_size=224):
+    # torch.autograd.set_detect_anomaly(True)
     torch.backends.cudnn.benchmark = True
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
@@ -59,8 +61,6 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model = torch.nn.DataParallel(model)
         model = model.to(device)
 
-
-
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
     launch_time = time.strftime("%Y_%m_%d-%H_%M")
     writer = SummaryWriter(log_dir='logs/' + model_name + launch_time)
@@ -72,10 +72,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     for epoch in range(max_epochs):
         if reinforce:
 
-            loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False, verbose=verbose)
-
-            agent_loss, agent_acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True, verbose=verbose)
+            agent_loss, agent_acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent,
+                                             train_agent=True, verbose=verbose)
             summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
+            loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+                                 verbose=verbose)
+
+
 
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
@@ -95,9 +98,10 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
 
 def summarize(writer, split, epoch, acc, loss=None):
-    writer.add_scalar('accuracy/'+ split, acc, epoch)
+    writer.add_scalar('accuracy/' + split, acc, epoch)
     if loss:
         writer.add_scalar('Loss/' + split, loss, epoch)
+
 
 def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     model.eval()
@@ -136,6 +140,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     print(overall)
     return class_accuracy, accuracy
 
+
 def train_vit(loader, device, model, optimizer, scaler, verbose=True):
     criterion = torch.nn.CrossEntropyLoss()
     model.train()
@@ -165,12 +170,15 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
 
     return running_loss, correct / n_items
 
+
 def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True):
     criterion = torch.nn.CrossEntropyLoss()
     loss_func = CustomLoss().to(device)
     if train_agent:
         model.eval()
         agent.train()
+        agent.module.freeze(train_agent)
+        model.module.freeze(not train_agent)
     else:
         model.train()
         agent.eval()
@@ -188,13 +196,22 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         labels = labels.to(device)
         optimizer.zero_grad()
         with torch.autocast(device_type='cuda', dtype=torch.float16):
-
-            q_table, values = agent(inputs)
-            prob = torch.exp(q_table)
-            dist = Categorical(prob)
-            action = dist.sample()
-            outputs = model(inputs, action.detach())
-            probs, preds = torch.max(outputs, 1)
+            if train_agent:
+                q_table, values = agent(inputs)
+                prob = torch.exp(q_table)
+                dist = Categorical(prob)
+                action = dist.sample()
+                with torch.no_grad():
+                    outputs = model(inputs, action)
+                    probs, preds = torch.max(outputs, 1)
+            else:
+                with torch.no_grad():
+                    q_table, values = agent(inputs)
+                    prob = torch.exp(q_table)
+                    dist = Categorical(prob)
+                    action = dist.sample()
+                outputs = model(inputs, action)
+                probs, preds = torch.max(outputs, 1)
 
             if train_agent:
                 rewards = (preds == labels).long()
@@ -226,17 +243,14 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     return running_loss, correct / n_items
 
 
-
-
-
 if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = "saves/baseline.pth"
+    base = None  # "saves/baseline.pth"
     model = "advantage"
     pretrained = True
     verbose = True
-    agent = None #"saves/agent_test.pth"
-    size=224
+    agent = None  # "saves/agent_test.pth"
+    size = 224
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained, verbose=verbose, img_size=size)
