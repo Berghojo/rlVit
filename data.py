@@ -57,10 +57,10 @@ def get_loader(size):
 
     train_data = Data(size=size, split="train")
     test_data = Data(size=size, split="test")
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=16,
-                                               shuffle=True, num_workers=4)
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=16,
-                                             shuffle=False, num_workers=4)
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=64,
+                                               shuffle=True, num_workers=32)
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=64,
+                                             shuffle=False, num_workers=32)
 
     return train_loader, test_loader
 
