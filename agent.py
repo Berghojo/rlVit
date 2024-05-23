@@ -9,11 +9,13 @@ class Agent(nn.Module):
         self.n_actions = n_patches+1
         self.hidden_dim = 768
         back = vit_b_16(pretrained=pretrained)
-        self.backbone = deepcopy(back.encoder)
-        self.head1 = nn.Linear(in_features=768, out_features=self.n_actions)
-        self.head2 = (nn.Linear(in_features=768, out_features=1))
+        #self.backbone = deepcopy(back.encoder)
+        self.linear1 = nn.Linear(self.hidden_dim, 384)
+        self.head1 = nn.Linear(in_features=384, out_features=self.n_actions)
+        self.head2 = (nn.Linear(in_features=384, out_features=1))
+        self.relu = nn.ReLU()
         self.softmax = nn.LogSoftmax(dim=-1)
-        self.proj_layer = back.conv_proj
+        self.proj_layer = deepcopy(back.conv_proj)
         self.class_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim), requires_grad=False)
 
     def _process_input(self, x: torch.Tensor, p: int) -> torch.Tensor:
@@ -36,9 +38,22 @@ class Agent(nn.Module):
         x = torch.cat([batch_class_token, x], dim=1)
         return x
 
-    def forward(self, x):
-        x = self._process_input(x, 16)
-        x = self.backbone(x)
+    def freeze(self, freeze):
+        for param in self.parameters():
+            param.requires_grad = freeze
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+        for param in self.proj_layer.parameters():
+            param.requires_grad = False
+
+    def copy_backbone(self, state_dict):
+        self.proj_layer.weight.data = state_dict["module.proj_layer.weight"]
+        self.proj_layer.bias.data = state_dict["module.proj_layer.bias"]
+
+
+    def forward(self, x, ps=16):
+        x = self._process_input(x, ps)
+        x = self.relu(self.linear1(x))
         table = self.softmax(self.head1(x[:, 1:]))
         values = self.head2(x[:, 1:])
         return table, values

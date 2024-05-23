@@ -5,6 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 import time
 import numpy as np
 import random
+import gc
 from tqdm import tqdm
 from torch.distributions.categorical import Categorical
 from agent import *
@@ -24,13 +25,15 @@ def set_deterministic(seed=2408):
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
 
 
-def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None):
+def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None, verbose=True, img_size=224):
     #torch.autograd.set_detect_anomaly(True)
+    torch.backends.cudnn.benchmark = True
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.cuda.empty_cache()
-    train_loader, test_loader = get_loader()
+    gc.collect()
+    train_loader, test_loader = get_loader(img_size)
     if reinforce:
         print("Reinforce")
         agent = Agent(196, pretrained=pretrained)
@@ -69,15 +72,15 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     for epoch in range(max_epochs):
         if reinforce:
 
-            loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False)
+            loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False, verbose=verbose)
 
-            agent_loss, agent_acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True)
+            agent_loss, agent_acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent, train_agent=True, verbose=verbose)
             summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
         else:
-            loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler)
+            loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
         summarize(writer, "train", epoch, acc, loss)
-        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent)
+        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
         print('[Test] ACC: {:.4f} '.format(accuracy))
         print(f'[Test] CLASS ACC: {class_accuracy} @{epoch}')
         summarize(writer, "test", epoch, accuracy)
@@ -96,12 +99,12 @@ def summarize(writer, split, epoch, acc, loss=None):
     if loss:
         writer.add_scalar('Loss/' + split, loss, epoch)
 
-def eval_vit(model, device, loader, n_classes, agent):
+def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     model.eval()
     correct = torch.zeros(n_classes)
     overall = torch.zeros(n_classes)
     with torch.no_grad():
-        for inputs, labels in tqdm(loader):
+        for inputs, labels in tqdm(loader, disable=not verbose):
             inputs = inputs.to(device)
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
@@ -133,14 +136,14 @@ def eval_vit(model, device, loader, n_classes, agent):
     print(overall)
     return class_accuracy, accuracy
 
-def train_vit(loader, device, model, optimizer, scaler):
+def train_vit(loader, device, model, optimizer, scaler, verbose=True):
     criterion = torch.nn.CrossEntropyLoss()
     model.train()
     correct = 0
     n_items = 0
     running_loss = 0
     counter = 0
-    for inputs, labels in tqdm(loader):
+    for inputs, labels in tqdm(loader, disable=not verbose):
         inputs = inputs.to(device)
         labels = labels.type(torch.LongTensor)
         labels = labels.to(device)
@@ -155,38 +158,31 @@ def train_vit(loader, device, model, optimizer, scaler):
         correct += torch.sum(preds == labels)
         n_items += inputs.size(0)
         running_loss += loss.item() * inputs.size(0)
-
-        if counter % 100 == 99:
+        del outputs
+        if counter % 1000 == 999:
             print(correct / n_items)
         counter += 1
 
     return running_loss, correct / n_items
 
-def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
+def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True):
     criterion = torch.nn.CrossEntropyLoss()
     loss_func = CustomLoss().to(device)
     if train_agent:
         model.eval()
         agent.train()
-        for param in model.parameters():
-            param.requires_grad = False
-        for param in agent.parameters():
-            param.requires_grad = True
     else:
         model.train()
         agent.eval()
-        for param in model.parameters():
-            param.requires_grad = True
-        for param in agent.parameters():
-            param.requires_grad = False
-        for param in agent.module.backbone.parameters():
-            param.requires_grad = False
+        agent.module.freeze(train_agent)
+        model.module.freeze(not train_agent)
+    agent.module.copy_backbone(model.state_dict())
     correct = 0
     n_items = 0
     running_loss = 0
 
     counter = 0
-    for inputs, labels in tqdm(loader):
+    for inputs, labels in tqdm(loader, disable=not verbose):
         inputs = inputs.to(device)
         labels = labels.type(torch.LongTensor)
         labels = labels.to(device)
@@ -211,18 +207,22 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent):
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
+
         correct += torch.sum(preds == labels)
         n_items += inputs.size(0)
-        running_loss += loss.item() * inputs.size(0)
+        if train_agent:
+            running_loss += loss.item() * inputs.size(0)
+        else:
+            running_loss += loss.item()
 
-
-        if counter % 100 == 99:
+        if counter % 1000 == 999:
             print(f'Reinforce_Loss {loss}')
             acc = correct / n_items
             print(acc)
 
         counter += 1
-
+        del loss
+        del outputs
     return running_loss, correct / n_items
 
 
@@ -233,8 +233,10 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = None #"saves/model_test.pth"
+    base = "saves/baseline.pth"
     model = "advantage"
     pretrained = True
+    verbose = True
     agent = None #"saves/agent_test.pth"
-    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained)
+    size=224
+    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained, verbose=verbose, img_size=size)

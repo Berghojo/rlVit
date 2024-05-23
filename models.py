@@ -225,6 +225,9 @@ class ViT(torch.nn.Module):
         x = x + self.pos_embedding[i]
         return x
 
+    def freeze(self, freeze):
+        for param in self.parameters():
+            param.requires_grad = freeze
 
     def forward(self, x, permutation):
 
