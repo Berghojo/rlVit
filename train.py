@@ -27,9 +27,9 @@ def set_deterministic(seed=2408):
 
 
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None,
-          verbose=True, img_size=224):
+          verbose=True, img_size=224, base_vit=False):
     # torch.autograd.set_detect_anomaly(True)
-    torch.backends.cudnn.benchmark = True
+
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,7 +57,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @{-1}')
     else:
-        model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
+        model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(10, pretrained)
         model = torch.nn.DataParallel(model)
         model = model.to(device)
 
@@ -72,12 +72,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     for epoch in range(max_epochs):
         if reinforce:
 
-            agent_loss, agent_acc = train_rl(train_loader, device, model, agent_optimizer, scaler, agent,
-                                             train_agent=True, verbose=verbose)
-            summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
-            loss, acc = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+            loss, acc,  = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
                                  verbose=verbose)
-
+            agent_loss, agent_acc, policy_loss, value_loss, entropy_loss = train_rl(train_loader, device, model,
+                                                                                    agent_optimizer, scaler, agent,
+                                                                                    train_agent=True, verbose=verbose)
+            summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
+            summarize_agent(writer, "train_agent", epoch, policy_loss, value_loss, entropy_loss)
 
 
         else:
@@ -101,7 +102,10 @@ def summarize(writer, split, epoch, acc, loss=None):
     writer.add_scalar('accuracy/' + split, acc, epoch)
     if loss:
         writer.add_scalar('Loss/' + split, loss, epoch)
-
+def summarize_agent(writer, split, epoch, policy_loss, value_loss, entropy_loss):
+    writer.add_scalar('policy_loss/' + split, policy_loss, epoch)
+    writer.add_scalar('entropy_loss/' + split, entropy_loss, epoch)
+    writer.add_scalar('value_loss/' + split, value_loss, epoch)
 
 def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     model.eval()
@@ -215,7 +219,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             if train_agent:
                 rewards = (preds == labels).long()
-                loss = loss_func(torch.exp(dist.log_prob(action)), values, rewards, prob)
+                loss, policy_loss, value_loss, entropy_loss = loss_func(torch.exp(dist.log_prob(action)), values, rewards, prob)
 
             else:
 
@@ -228,9 +232,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         correct += torch.sum(preds == labels)
         n_items += inputs.size(0)
         if train_agent:
-            running_loss += loss.item() * inputs.size(0)
-        else:
             running_loss += loss.item()
+        else:
+            running_loss += loss.item() * inputs.size(0)
 
         if counter % 1000 == 999:
             print(f'Reinforce_Loss {loss}')
@@ -240,6 +244,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         counter += 1
         del loss
         del outputs
+    if train_agent:
+        return running_loss, correct / n_items, policy_loss, value_loss, entropy_loss
     return running_loss, correct / n_items
 
 
@@ -253,4 +259,6 @@ if __name__ == "__main__":
     verbose = True
     agent = None  # "saves/agent_test.pth"
     size = 224
-    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained, verbose=verbose, img_size=size)
+    use_simple_vit = False
+    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
+          verbose=verbose, img_size=size, base_vit=use_simple_vit)

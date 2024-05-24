@@ -11,6 +11,19 @@ from copy import deepcopy
 from util import PositionalEncodingPermute1D
 
 
+class BaseVit(nn.Module):
+    def __init__(self, num_classes, pretrained=False):
+        super(BaseVit, self).__init__()
+        hidden_dim = 768
+        self.backbone.heads.head = torch.nn.Linear(hidden_dim, num_classes)  # Used 768 from Documentation
+    def forward(self, x):
+        x = self.backbone(x)
+        return x
+
+    def freeze(self, freeze):
+        for param in self.parameters():
+            param.requires_grad = freeze
+
 class ParallelEncoder(nn.Module):
     def __init__(self, stage, num_heads, hidden_dims, mlp_dim, dropout, attention_dropout, norm_layer):
         super(ParallelEncoder, self).__init__()
@@ -45,6 +58,7 @@ class FusionLayer(nn.Module):
         self.pos_embedding = pos_embedding
         self.class_token = class_token
         self.act = nn.GELU()
+
         self.stream_dims = stream_dims
         for i in range(len(stage)):
             first = nn.ModuleList()
@@ -139,11 +153,12 @@ class ViT(torch.nn.Module):
 
         super(ViT, self).__init__()
         image_size = img_size
-        self.patch_sizes = [16, 32]
+        self.patch_sizes = [16]
         self.stages = ((4,),
                        (4, 4),
                        (4, 4),
                        )
+        self.stages = ((12,),)
         print(self.stages)
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
 
@@ -154,7 +169,7 @@ class ViT(torch.nn.Module):
         attention_dropout = 0.1
         self.hidden_dims = [base_size] + [int(base_size * 2 * i) for i in range(1, len(self.patch_sizes)
                                                                                 )]
-
+        self.alt_encoder = vit_b_16(pretrained=pretrained).encoder
         mlp_dim = 3072
 
         self.proj_layer = nn.Conv2d(
@@ -219,9 +234,8 @@ class ViT(torch.nn.Module):
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
             new_img = torch.gather(x, 1, expanded_permutations)
             x = new_img
-
-        x = torch.cat([batch_class_token, x], dim=1)
         x = x + self.pos_encoder[0](x)
+        x = torch.cat([batch_class_token, x], dim=1)
         x = x + self.pos_embedding[i]
         return x
 
@@ -231,29 +245,17 @@ class ViT(torch.nn.Module):
 
     def forward(self, x, permutation):
 
+
         x = self._process_input(x, self.patch_sizes[0], 0, permutation)
 
-        x = self.parallel_encoders[0]([x])
-        x = self.fusion_layers[0](x)
+        x = self.alt_encoder(x)
 
-        x = self.parallel_encoders[1](x)
-        x, x1 = self.fusion_layers[1](x)
-
-        x = [x, x1]
-        x, x1 = self.parallel_encoders[2](x)
-
-        x = torch.cat([x[:, 0], x1[:, 0]], dim=1)
-        x = self.head(x)
-        return x
-
-        # x = self._process_input(x, self.patch_sizes[0], 0, permutation)
-        #
         # x = [x]
         # for i in range(len(self.parallel_encoders)-1):
         #     x = self.fusion_layers[i](self.parallel_encoders[i](x))
         #
         # x = self.parallel_encoders[-1](x)
-        # x = torch.cat([stream[:, 0] for stream in x], dim=1)
-        # x = self.head(x)
-        # return x
+        #x = torch.cat([stream[:, 0] for stream in x], dim=1)
+        x = self.head(x[:, 0])
+        return x
 
