@@ -72,6 +72,8 @@ class CustomLoss(nn.Module):
     def forward(self, policy_per_action, values, rewards, policy):
         target_value = self.get_values(rewards, values)
         advantage = target_value - values.squeeze()
+
+
         clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-5, 1 - 1e-5)
 
@@ -79,6 +81,7 @@ class CustomLoss(nn.Module):
         policy_loss = -torch.mean((torch.log(clipped_policy_per_action)) * advantage.detach())
 
         entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
+
         entropy_loss = -torch.mean(entropy)
         loss = policy_loss + value_loss * self.value_factor + self.entropy_factor * entropy_loss
         return loss, policy_loss, value_loss, entropy_loss
@@ -87,23 +90,22 @@ class CustomLoss(nn.Module):
         gamma = 0.9
         pos_reward = 1
         neg_reward = 0
-        n_step_return = 5
+        n_step_return = 197
         values = values.squeeze()
 
         reward[reward == 1] = pos_reward
         reward[reward == 0] = neg_reward
-        r = torch.zeros_like(values)
-        val = torch.zeros_like(values)
-        r[:, -1] = reward
-
         max_size = values.shape[1]
-        seq_len = r.shape[1]
-        for i in range(1, seq_len):
-            for e in range(i + 1, i + 1 + n_step_return):
-                if e < max_size:
-                    if (e - i) == n_step_return:
-                        val[:, i] += (gamma ** (e - i)) * values[:, e]
-                    else:
-                        val[:, i] += (gamma ** (e - i)) * r[:, e]
+        r = reward.unsqueeze(dim=1).expand(-1, max_size)
 
-        return val
+        # max_size = values.shape[1]
+        # seq_len = r.shape[1]
+        # for i in range(1, seq_len):
+        #     for e in range(i + 1, i + 1 + n_step_return):
+        #         if e < max_size:
+        #             if (e - i) == n_step_return:
+        #                 val[:, i] += (gamma ** (e - i)) * values[:, e]
+        #             else:
+        #                 val[:, i] += (gamma ** (e - i)) * r[:, e]
+
+        return r

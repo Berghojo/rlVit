@@ -225,18 +225,20 @@ class ViT(torch.nn.Module):
         x = x.permute(0, 2, 1)
 
         batch_class_token = self.class_token[i].expand(n, -1, -1)
-
+        x = torch.cat([batch_class_token, x], dim=1)
         #
+        x = x + self.pos_embedding[i]
 
         if permutation is not None:
-            dark_patch = self.dark_patch.expand(n, -1, -1)
-            x = torch.cat([x, dark_patch], dim=1)
+
+            dark_patch = self.dark_patch.expand(n, -1, -1).detach()
+            new_img = torch.cat([x[:, 1:], dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
-            new_img = torch.gather(x, 1, expanded_permutations)
-            x = new_img
+            new_img = torch.gather(new_img, 1, expanded_permutations)
+            x[:, 1:] = new_img
         x = x + self.pos_encoder[0](x)
-        x = torch.cat([batch_class_token, x], dim=1)
-        x = x + self.pos_embedding[i]
+
+
         return x
 
     def freeze(self, freeze):
@@ -248,14 +250,12 @@ class ViT(torch.nn.Module):
 
         x = self._process_input(x, self.patch_sizes[0], 0, permutation)
 
-        x = self.alt_encoder(x)
+        x = [x]
+        for i in range(len(self.parallel_encoders)-1):
+            x = self.fusion_layers[i](self.parallel_encoders[i](x))
 
-        # x = [x]
-        # for i in range(len(self.parallel_encoders)-1):
-        #     x = self.fusion_layers[i](self.parallel_encoders[i](x))
-        #
-        # x = self.parallel_encoders[-1](x)
-        #x = torch.cat([stream[:, 0] for stream in x], dim=1)
-        x = self.head(x[:, 0])
+        x = self.parallel_encoders[-1](x)
+        x = torch.cat([stream[:, 0] for stream in x], dim=1)
+        x = self.head(x)
         return x
 

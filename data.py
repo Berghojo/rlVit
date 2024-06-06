@@ -53,14 +53,14 @@ class Data(Dataset):
 
         return image, label
 
-def get_loader(size):
+def get_loader(size, bs):
 
     train_data = Data(size=size, split="train")
     test_data = Data(size=size, split="test")
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=64,
-                                               shuffle=True, num_workers=32)
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=64,
-                                             shuffle=False, num_workers=32)
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=bs,
+                                               shuffle=True, num_workers=int(bs/4))
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=bs,
+                                             shuffle=False, num_workers=int(bs/4))
 
     return train_loader, test_loader
 

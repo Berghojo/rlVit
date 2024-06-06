@@ -8,14 +8,16 @@ class Agent(nn.Module):
         super(Agent, self).__init__()
         self.n_actions = n_patches+1
         self.hidden_dim = 768
-        back = vit_b_16(pretrained=pretrained)
-        #self.backbone = deepcopy(back.encoder)
-        self.linear1 = nn.Linear(self.hidden_dim, 384)
-        self.head1 = nn.Linear(in_features=384, out_features=self.n_actions)
-        self.head2 = (nn.Linear(in_features=384, out_features=1))
+        # self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
+        # self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
+        self.linear1 = nn.Linear(768, 128)
+        self.head1 = nn.Linear(in_features=128, out_features=self.n_actions)
+        self.head2 = (nn.Linear(in_features=128, out_features=1))
         self.relu = nn.ReLU()
         self.softmax = nn.LogSoftmax(dim=-1)
-        self.proj_layer = deepcopy(back.conv_proj)
+        self.proj_layer = nn.Conv2d(
+            in_channels=3, out_channels=768, kernel_size=16, stride=16
+        )
         self.class_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim), requires_grad=False)
 
     def _process_input(self, x: torch.Tensor, p: int) -> torch.Tensor:
@@ -25,7 +27,7 @@ class Agent(nn.Module):
         n_w = w // p
 
         # (n, c, h, w) -> (n, hidden_dim, n_h, n_w)
-        x = self.proj_layer(x).detach()
+        x = self.proj_layer(x)
         # (n, hidden_dim, n_h, n_w) -> (n, hidden_dim, (n_h * n_w))
         x = x.reshape(n, self.hidden_dim, n_h * n_w)
 
@@ -34,24 +36,22 @@ class Agent(nn.Module):
         # where S is the source sequence length, N is the batch size, E is the
         # embedding dimension
         x = x.permute(0, 2, 1)
-        batch_class_token = self.class_token.expand(n, -1, -1).detach()
-        x = torch.cat([batch_class_token, x], dim=1)
+
         return x
 
     def freeze(self, freeze):
+        print("Setting Agent Training to: ", freeze)
         for param in self.parameters():
             param.requires_grad = freeze
-        for param in self.proj_layer.parameters():
-            param.requires_grad = False
+
 
     def copy_backbone(self, state_dict):
-        self.proj_layer.weight.data = state_dict["module.proj_layer.weight"]
-        self.proj_layer.bias.data = state_dict["module.proj_layer.bias"]
+        pass
 
 
-    def forward(self, x, ps=16):
-        x = self._process_input(x, ps)
+    def forward(self, x):
+        x = self._process_input(x, 16)
         x = self.relu(self.linear1(x))
-        table = self.softmax(self.head1(x[:, 1:]))
-        values = self.head2(x[:, 1:])
+        table = self.softmax(self.head1(x))
+        values = self.head2(x)
         return table, values

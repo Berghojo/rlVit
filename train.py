@@ -27,7 +27,7 @@ def set_deterministic(seed=2408):
 
 
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None,
-          verbose=True, img_size=224, base_vit=False):
+          verbose=True, img_size=224, base_vit=False, batch_size=32):
     # torch.autograd.set_detect_anomaly(True)
 
     if not os.path.exists("./saves"):
@@ -35,7 +35,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.cuda.empty_cache()
     gc.collect()
-    train_loader, test_loader = get_loader(img_size)
+    train_loader, test_loader = get_loader(img_size, batch_size)
     if reinforce:
         print("Reinforce")
         agent = Agent(196, pretrained=pretrained)
@@ -53,7 +53,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(device)
         # print("Running base evaluation")
-        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None)
+        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent)
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @{-1}')
     else:
@@ -71,12 +71,14 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
-
-            loss, acc,  = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                                 verbose=verbose)
             agent_loss, agent_acc, policy_loss, value_loss, entropy_loss = train_rl(train_loader, device, model,
                                                                                     agent_optimizer, scaler, agent,
                                                                                     train_agent=True, verbose=verbose)
+            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+                                  verbose=verbose)
+
+
+
             summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
             summarize_agent(writer, "train_agent", epoch, policy_loss, value_loss, entropy_loss)
 
@@ -140,6 +142,9 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
         print(list(values), file=f)
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
     accuracy = sum(correct) / sum(overall)
+    classes = ('plane', 'car', 'bird', 'cat',
+               'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+    print(classes)
     print(correct)
     print(overall)
     return class_accuracy, accuracy
@@ -177,8 +182,9 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
 
 def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True):
     criterion = torch.nn.CrossEntropyLoss()
-    loss_func = CustomLoss().to(device)
+
     if train_agent:
+        loss_func = CustomLoss().to(device)
         model.eval()
         agent.train()
         agent.module.freeze(train_agent)
@@ -188,7 +194,6 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         agent.eval()
         agent.module.freeze(train_agent)
         model.module.freeze(not train_agent)
-    agent.module.copy_backbone(model.state_dict())
     correct = 0
     n_items = 0
     running_loss = 0
@@ -205,24 +210,20 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 prob = torch.exp(q_table)
                 dist = Categorical(prob)
                 action = dist.sample()
-                with torch.no_grad():
-                    outputs = model(inputs, action)
-                    probs, preds = torch.max(outputs, 1)
-            else:
-                with torch.no_grad():
-                    q_table, values = agent(inputs)
-                    prob = torch.exp(q_table)
-                    dist = Categorical(prob)
-                    action = dist.sample()
                 outputs = model(inputs, action)
                 probs, preds = torch.max(outputs, 1)
-
-            if train_agent:
                 rewards = (preds == labels).long()
-                loss, policy_loss, value_loss, entropy_loss = loss_func(torch.exp(dist.log_prob(action)), values, rewards, prob)
-
+                loss, policy_loss, value_loss, entropy_loss = loss_func(torch.exp(dist.log_prob(action)), values,
+                                                                        rewards, prob)
             else:
 
+                q_table, values = agent(inputs)
+                prob = torch.exp(q_table)
+
+                dist = Categorical(prob)
+                action = dist.sample()
+                outputs = model(inputs, action)
+                probs, preds = torch.max(outputs, 1)
                 loss = criterion(outputs, labels)
 
         scaler.scale(loss).backward()
@@ -253,12 +254,13 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = None  # "saves/baseline.pth"
-    model = "advantage"
+    base = None#"saves/model.pth"
+    model = "nothing"
     pretrained = True
     verbose = True
-    agent = None  # "saves/agent_test.pth"
+    agent = None#"saves/agent.pth"
     size = 224
+    batch_size = 16
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
-          verbose=verbose, img_size=size, base_vit=use_simple_vit)
+          verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size = batch_size)
