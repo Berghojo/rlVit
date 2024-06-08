@@ -153,7 +153,7 @@ class ViT(torch.nn.Module):
 
         super(ViT, self).__init__()
         image_size = img_size
-        self.patch_sizes = [16]
+        self.patch_sizes = [16, 32]
         self.stages = ((4,),
                        (4, 4),
                        (4, 4),
