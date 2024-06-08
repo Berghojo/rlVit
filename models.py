@@ -158,7 +158,7 @@ class ViT(torch.nn.Module):
                        (4, 4),
                        (4, 4),
                        )
-        self.stages = ((12,),)
+
         print(self.stages)
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
 
@@ -255,7 +255,9 @@ class ViT(torch.nn.Module):
             x = self.fusion_layers[i](self.parallel_encoders[i](x))
 
         x = self.parallel_encoders[-1](x)
+
         x = torch.cat([stream[:, 0] for stream in x], dim=1)
+
         x = self.head(x)
         return x
 
