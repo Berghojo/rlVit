@@ -154,7 +154,7 @@ class ViT(torch.nn.Module):
         super(ViT, self).__init__()
         image_size = img_size
         self.patch_sizes = [16, 32]
-        self.stages = ((4,),
+        self.stages = ((4, 4),
                        (4, 4),
                        (4, 4),
                        )
@@ -172,9 +172,9 @@ class ViT(torch.nn.Module):
         self.alt_encoder = vit_b_16(pretrained=pretrained).encoder
         mlp_dim = 3072
 
-        self.proj_layer = nn.Conv2d(
-            in_channels=3, out_channels=self.hidden_dims[0], kernel_size=self.patch_sizes[0], stride=self.patch_sizes[0]
-        )
+        self.proj_layers = nn.ModuleList([nn.Conv2d(in_channels=3,
+                                                    out_channels=self.hidden_dims[i], kernel_size=self.patch_sizes[i],
+                                                    stride=self.patch_sizes[i]) for i in range(len(self.patch_sizes))])
 
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
         self.pos_embedding = [nn.Parameter(torch.empty(1, seq_length, hidden_dim).normal_(std=0.02)) for
@@ -203,7 +203,7 @@ class ViT(torch.nn.Module):
                 self.parallel_encoders[e].encoder_blocks[0] = deepcopy(backbone.encoder.layers[start:end])
                 start += s[0]
             self.pos_embedding[0] = deepcopy(backbone.encoder.pos_embedding)
-            self.proj_layer = deepcopy(backbone.conv_proj)
+            self.proj_layers[0] = deepcopy(backbone.conv_proj)
             self.class_token[0] = deepcopy(backbone.class_token)
 
     def _process_input(self, x: torch.Tensor, p: int, i, permutation=None) -> torch.Tensor:
@@ -213,7 +213,7 @@ class ViT(torch.nn.Module):
         n_w = w // p
 
         # (n, c, h, w) -> (n, hidden_dim, n_h, n_w)
-        x = self.proj_layer(x)
+        x = self.proj_layers[i](x)
         # (n, hidden_dim, n_h, n_w) -> (n, hidden_dim, (n_h * n_w))
         x = x.reshape(n, self.hidden_dims[i], n_h * n_w)
 
@@ -248,9 +248,9 @@ class ViT(torch.nn.Module):
     def forward(self, x, permutation):
 
 
-        x = self._process_input(x, self.patch_sizes[0], 0, permutation)
-
-        x = [x]
+        x1 = self._process_input(x, self.patch_sizes[0], 0, permutation)
+        x2 = self._process_input(x, self.patch_sizes[1], 1, None)
+        x = [x1, x2]
         for i in range(len(self.parallel_encoders)-1):
             x = self.fusion_layers[i](self.parallel_encoders[i](x))
 
