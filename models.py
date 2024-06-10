@@ -2,7 +2,7 @@
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.models.vision_transformer import vit_b_16, ViT_B_16_Weights, VisionTransformer, EncoderBlock
+from torchvision.models.vision_transformer import vit_b_16, vit_b_32, VisionTransformer, EncoderBlock
 from functools import partial
 from torch import nn
 import numpy as np
@@ -205,6 +205,19 @@ class ViT(torch.nn.Module):
             self.pos_embedding[0] = deepcopy(backbone.encoder.pos_embedding)
             self.proj_layers[0] = deepcopy(backbone.conv_proj)
             self.class_token[0] = deepcopy(backbone.class_token)
+
+            backbone = vit_b_32(pretrained=True)
+            print('Loading pretrained weights...')
+            start = 0
+            end = 0
+            for e, s in enumerate(self.stages):
+                end += s[0]
+                print("Copying Layers: ", start, end)
+                self.parallel_encoders[e].encoder_blocks[1] = deepcopy(backbone.encoder.layers[start:end])
+                start += s[0]
+            self.pos_embedding[1] = deepcopy(backbone.encoder.pos_embedding)
+            self.proj_layers[1] = deepcopy(backbone.conv_proj)
+            self.class_token[1] = deepcopy(backbone.class_token)
 
     def _process_input(self, x: torch.Tensor, p: int, i, permutation=None) -> torch.Tensor:
         n, c, h, w = x.shape
