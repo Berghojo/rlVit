@@ -227,7 +227,6 @@ class ViT(torch.nn.Module):
         n_w = w // p
 
         # (n, c, h, w) -> (n, hidden_dim, n_h, n_w)
-        print(self.proj_layers[i])
 
         x = self.proj_layers[i](x)
 
