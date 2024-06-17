@@ -153,10 +153,8 @@ class ViT(torch.nn.Module):
 
         super(ViT, self).__init__()
         image_size = img_size
-        self.patch_sizes = [16, 32]
-        self.stages = ((4, 4),
-                       (4, 4),
-                       (4, 4),
+        self.patch_sizes = [16]
+        self.stages = ((12,),
                        )
 
         print(self.stages)
@@ -264,9 +262,9 @@ class ViT(torch.nn.Module):
     def forward(self, x, permutation):
 
 
-        x1 = self._process_input(x, self.patch_sizes[0], 0, permutation)
-        x2 = self._process_input(x, self.patch_sizes[1], 1, None)
-        x = [x1, x2]
+        x = self._process_input(x, self.patch_sizes[0], 0, permutation)
+
+        x = [x]
         for i in range(len(self.parallel_encoders)-1):
             x = self.fusion_layers[i](self.parallel_encoders[i](x))
 
