@@ -17,7 +17,10 @@ class Agent(nn.Module):
         self.relu = nn.ReLU()
         self.softmax = nn.LogSoftmax(dim=-1)
         self.proj_layer = nn.Conv2d(
-            in_channels=3, out_channels=768, kernel_size=16, stride=16
+            in_channels=3, out_channels=768, kernel_size=3, stride=1
+        )
+        self.proj_layer1 = nn.Conv2d(
+            in_channels=768, out_channels=768, kernel_size=3, stride=1
         )
         self.class_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim), requires_grad=False)
 
@@ -29,6 +32,7 @@ class Agent(nn.Module):
 
         # (n, c, h, w) -> (n, hidden_dim, n_h, n_w)
         x = self.proj_layer(x)
+        x = self.proj_layer1(x)
         # (n, hidden_dim, n_h, n_w) -> (n, hidden_dim, (n_h * n_w))
         x = x.reshape(n, self.hidden_dim, n_h * n_w)
 
