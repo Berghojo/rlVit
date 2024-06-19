@@ -211,8 +211,12 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 dist = Categorical(prob)
                 action = dist.sample()
                 outputs = model(inputs, action)
+                baseline = model(inputs, None)
+                baseline = torch.gather(torch.softmax(baseline, dim=-1), -1, labels.unsqueeze(-1))
+                normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+                rewards = normal - baseline
                 probs, preds = torch.max(outputs, 1)
-                rewards = (preds == labels).long()
+
                 loss, policy_loss, value_loss, entropy_loss = loss_func(torch.exp(dist.log_prob(action)), values,
                                                                         rewards, prob)
             else:
@@ -262,5 +266,5 @@ if __name__ == "__main__":
     size = 224
     batch_size = 16
     use_simple_vit = False
-    train(model, num_classes, max_epochs, base, reinforce=False, pretrained=pretrained,
+    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size = batch_size)

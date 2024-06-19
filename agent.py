@@ -12,6 +12,7 @@ class Agent(nn.Module):
         # self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
         self.linear1 = nn.Linear(768, 128)
         self.head1 = nn.Linear(in_features=128, out_features=self.n_actions)
+
         self.head2 = (nn.Linear(in_features=128, out_features=1))
         self.relu = nn.ReLU()
         self.softmax = nn.LogSoftmax(dim=-1)

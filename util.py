@@ -71,20 +71,20 @@ class CustomLoss(nn.Module):
         self.entropy_factor = 0.01
     def forward(self, policy_per_action, values, rewards, policy):
         target_value = self.get_values(rewards, values)
-        advantage = target_value - values.squeeze()
+        #advantage = target_value - values.squeeze()
 
 
         clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-5, 1 - 1e-5)
 
-        value_loss = torch.mean(advantage ** 2)
-        policy_loss = -torch.mean((torch.log(clipped_policy_per_action)) * advantage.detach())
+        #value_loss = torch.mean(advantage ** 2)
+        policy_loss = -torch.mean((torch.log(clipped_policy_per_action)) * target_value.detach())
 
         entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
 
         entropy_loss = -torch.mean(entropy)
-        loss = policy_loss + value_loss * self.value_factor + self.entropy_factor * entropy_loss
-        return loss, policy_loss, value_loss, entropy_loss
+        loss = policy_loss + self.entropy_factor * entropy_loss
+        return loss, policy_loss, target_value, entropy_loss
 
     def get_values(self, reward, values):
         gamma = 0.9
@@ -92,11 +92,8 @@ class CustomLoss(nn.Module):
         neg_reward = 0
         n_step_return = 197
         values = values.squeeze()
-
-        reward[reward == 1] = pos_reward
-        reward[reward == 0] = neg_reward
         max_size = values.shape[1]
-        r = reward.unsqueeze(dim=1).expand(-1, max_size)
+        r = reward.expand(-1, max_size)
 
         # max_size = values.shape[1]
         # seq_len = r.shape[1]
