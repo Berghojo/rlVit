@@ -1,5 +1,5 @@
 from torch import nn
-from torchvision.models.vision_transformer import vit_b_16
+from torchvision.models import resnet34
 import torch
 
 from copy import deepcopy
@@ -7,40 +7,29 @@ class Agent(nn.Module):
     def __init__(self, n_patches, pretrained):
         super(Agent, self).__init__()
         self.n_actions = n_patches+1
-        self.hidden_dim = 768
-        # self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
-        # self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
-        self.linear1 = nn.Linear(768, 128)
-        self.head1 = nn.Linear(in_features=128, out_features=self.n_actions)
+        self.hidden_dim = 1024
 
-        self.head2 = (nn.Linear(in_features=128, out_features=1))
+        self.linear1 = nn.Linear(25088, self.hidden_dim)
+        self.head1 = nn.Linear(in_features=self.hidden_dim, out_features=self.n_actions)
+        self.lstm = nn.LSTMCell(self.hidden_dim, self.hidden_dim)
+        self.head2 = (nn.Linear(in_features=self.hidden_dim, out_features=1))
         self.relu = nn.ReLU()
         self.softmax = nn.LogSoftmax(dim=-1)
-        self.proj_layer = nn.Conv2d(
-            in_channels=3, out_channels=768, kernel_size=3, stride=1
-        )
-        self.proj_layer1 = nn.Conv2d(
-            in_channels=768, out_channels=768, kernel_size=3, stride=1
-        )
+
+        resnet = resnet34(pretrained=True)  # pretrained ImageNet resnet34
+
+        modules = list(resnet.children())[:-2]
+        self.resnet = nn.Sequential(*modules)
+        self.decode_length = 196
         self.class_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim), requires_grad=False)
 
-    def _process_input(self, x: torch.Tensor, p: int) -> torch.Tensor:
-        n, c, h, w = x.shape
+    def _process_input(self, x: torch.Tensor) -> torch.Tensor:
 
-        n_h = h // p
-        n_w = w // p
+        x = self.resnet(x)
 
-        # (n, c, h, w) -> (n, hidden_dim, n_h, n_w)
-        x = self.proj_layer(x)
-        x = self.proj_layer1(x)
-        # (n, hidden_dim, n_h, n_w) -> (n, hidden_dim, (n_h * n_w))
-        x = x.reshape(n, self.hidden_dim, n_h * n_w)
 
-        # (n, hidden_dim, (n_h * n_w)) -> (n, (n_h * n_w), hidden_dim)
-        # The self attention layer expects inputs in the format (N, S, E)
-        # where S is the source sequence length, N is the batch size, E is the
-        # embedding dimension
-        x = x.permute(0, 2, 1)
+
+
 
         return x
 
@@ -55,8 +44,17 @@ class Agent(nn.Module):
 
 
     def forward(self, x):
-        x = self._process_input(x, 16)
+        b, n, h, w = x.shape
+        x = self.resnet(x).detach()
+        x = torch.flatten(x, 1)
+
         x = self.relu(self.linear1(x))
-        table = self.softmax(self.head1(x))
-        values = self.head2(x)
+        h = torch.zeros((b, self.hidden_dim)).to(x.device)
+        c = torch.zeros((b, self.hidden_dim)).to(x.device)
+        output = torch.zeros((b, self.decode_length, self.hidden_dim)).to(x.device)
+        for i in range(self.decode_length):
+            h, c = self.lstm(x, (h, c))
+            output[:, i] = h
+        table = self.head1(output)
+        values = self.head2(output)
         return table, values
