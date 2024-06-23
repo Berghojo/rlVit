@@ -241,6 +241,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         else:
             running_loss += loss.item() * inputs.size(0)
 
+
         if counter % 1000 == 999:
             print(f'Reinforce_Loss {loss}')
             acc = correct / n_items

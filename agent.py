@@ -55,6 +55,6 @@ class Agent(nn.Module):
         for i in range(self.decode_length):
             h, c = self.lstm(x, (h, c))
             output[:, i] = h
-        table = self.head1(output)
+        table = self.softmax(self.head1(output))
         values = self.head2(output)
         return table, values
