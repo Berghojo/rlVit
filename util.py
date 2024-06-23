@@ -84,7 +84,7 @@ class CustomLoss(nn.Module):
 
         entropy_loss = -torch.mean(entropy)
         loss = policy_loss + self.entropy_factor * entropy_loss
-        return loss, policy_loss, target_value, entropy_loss
+        return loss, policy_loss, entropy_loss
 
     def get_values(self, reward, values):
         gamma = 0.9

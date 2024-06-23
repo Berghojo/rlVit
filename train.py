@@ -104,11 +104,9 @@ def summarize(writer, split, epoch, acc, loss=None):
     writer.add_scalar('accuracy/' + split, acc, epoch)
     if loss:
         writer.add_scalar('Loss/' + split, loss, epoch)
-def summarize_agent(writer, split, epoch, policy_loss, value_loss, entropy_loss):
+def summarize_agent(writer, split, epoch, policy_loss, entropy_loss):
     writer.add_scalar('policy_loss/' + split, policy_loss, epoch)
     writer.add_scalar('entropy_loss/' + split, entropy_loss, epoch)
-    writer.add_scalar('value_loss/' + split, value_loss, epoch)
-
 def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     model.eval()
     correct = torch.zeros(n_classes)
@@ -217,8 +215,10 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 rewards = normal - baseline
                 probs, preds = torch.max(outputs, 1)
 
-                loss, policy_loss, value_loss, entropy_loss = loss_func(torch.exp(dist.log_prob(action)), values,
+                loss, policy_loss, entropy_loss = loss_func(torch.exp(dist.log_prob(action)), values,
                                                                         rewards, prob)
+
+
             else:
 
                 q_table, values = agent(inputs)
@@ -250,7 +250,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         del loss
         del outputs
     if train_agent:
-        return running_loss, correct / n_items, policy_loss, value_loss, entropy_loss
+        return running_loss, correct / n_items, policy_loss, entropy_loss
     return running_loss, correct / n_items
 
 
