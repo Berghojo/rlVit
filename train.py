@@ -71,7 +71,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
-            agent_loss, agent_acc, policy_loss, value_loss, entropy_loss = train_rl(train_loader, device, model,
+            agent_loss, agent_acc, policy_loss, entropy_loss = train_rl(train_loader, device, model,
                                                                                     agent_optimizer, scaler, agent,
                                                                                     train_agent=True, verbose=verbose)
             loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
@@ -80,7 +80,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
 
             summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
-            summarize_agent(writer, "train_agent", epoch, policy_loss, value_loss, entropy_loss)
+            summarize_agent(writer, "train_agent", epoch, policy_loss, entropy_loss)
 
 
         else:
