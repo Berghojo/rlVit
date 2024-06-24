@@ -1,6 +1,7 @@
 from torch import nn
 from torchvision.models import resnet34
 import torch
+from util import PositionalEncoding1D
 
 from copy import deepcopy
 class Agent(nn.Module):
@@ -9,23 +10,23 @@ class Agent(nn.Module):
         self.n_actions = n_patches+1
         self.hidden_dim = 1024
 
-        self.linear1 = nn.Linear(25088, self.hidden_dim)
+        self.linear1 = nn.Linear(512, self.hidden_dim)
         self.head1 = nn.Linear(in_features=self.hidden_dim, out_features=self.n_actions)
-        self.lstm = nn.LSTMCell(self.hidden_dim, self.hidden_dim)
         self.head2 = (nn.Linear(in_features=self.hidden_dim, out_features=1))
         self.relu = nn.ReLU()
         self.softmax = nn.LogSoftmax(dim=-1)
-
+        self.query_embed = nn.Embedding(n_patches, self.hidden_dim)
         resnet = resnet34(pretrained=True)  # pretrained ImageNet resnet34
 
         modules = list(resnet.children())[:-2]
         self.resnet = nn.Sequential(*modules)
         self.decode_length = 196
         self.class_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim), requires_grad=False)
-
+        decoder_layer = nn.TransformerDecoderLayer(d_model=1024, nhead=8)
+        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=6)
     def _process_input(self, x: torch.Tensor) -> torch.Tensor:
-
         x = self.resnet(x)
+
 
 
 
@@ -44,17 +45,19 @@ class Agent(nn.Module):
 
 
     def forward(self, x):
-        b, n, h, w = x.shape
-        x = self.resnet(x).detach()
-        x = torch.flatten(x, 1)
 
-        x = self.relu(self.linear1(x))
-        h = torch.zeros((b, self.hidden_dim)).to(x.device)
-        c = torch.zeros((b, self.hidden_dim)).to(x.device)
-        output = torch.zeros((b, self.decode_length, self.hidden_dim)).to(x.device)
-        for i in range(self.decode_length):
-            h, c = self.lstm(x, (h, c))
-            output[:, i] = h
-        table = self.softmax(self.head1(output))
-        values = self.head2(output)
-        return table, values
+        x = self.resnet(x).detach()
+        x = torch.flatten(x, 2)
+        x = torch.permute(x, [0, 2, 1])
+        x = self.relu(self.linear1(x)).permute(1, 0, 2)
+
+        _, bs, f = x.shape
+        query_pos = self.query_embed.weight.unsqueeze(0).repeat(bs, 1, 1)
+        tgt = torch.zeros_like(query_pos).permute(1, 0, 2)
+
+        x = self.transformer_decoder(tgt, x).permute(1, 0, 2)
+
+        tbl = self.relu(self.head1(x))
+        value = self.head2(x)
+        return self.softmax(tbl), value
+

@@ -255,6 +255,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     return running_loss, correct / n_items
 
 
+
 if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
@@ -265,7 +266,7 @@ if __name__ == "__main__":
     verbose = True
     agent = None#"saves/agent.pth"
     size = 224
-    batch_size = 64
+    batch_size = 16
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size = batch_size)

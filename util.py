@@ -91,7 +91,6 @@ class CustomLoss(nn.Module):
         pos_reward = 1
         neg_reward = 0
         n_step_return = 197
-        values = values.squeeze()
         max_size = values.shape[1]
         r = reward.expand(-1, max_size)
 
