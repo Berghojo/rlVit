@@ -42,12 +42,12 @@ class Data(Dataset):
         image, label = self.set[idx]
 
         #image = self.resize(image)
-        if self.split == "train":
-            choices = np.random.random_sample(size=len(self.train_transform))
-            for i, t in enumerate(self.train_transform):
-                trans, prob = t
-                if choices[i] <= prob:
-                    image = trans(image)
+        # if self.split == "train":
+        #     choices = np.random.random_sample(size=len(self.train_transform))
+        #     for i, t in enumerate(self.train_transform):
+        #         trans, prob = t
+        #         if choices[i] <= prob:
+        #             image = trans(image)
         if self.transform:
             image = self.transform(image)
 

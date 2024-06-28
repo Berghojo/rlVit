@@ -62,10 +62,13 @@ class Agent(nn.Module):
 
         query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, bs, 1)
         tgt = torch.zeros_like(query_embed)
+
         memory = self.transformer_encoder(x)
         x = self.transformer_decoder(tgt, memory).permute(1, 0, 2)
 
+
         tbl = self.head1(x)
+
         value = self.head2(x)
         return self.softmax(tbl), value
 

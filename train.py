@@ -119,9 +119,10 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             labels = labels.to(device)
             if agent is not None:
                 q_table, values = agent(inputs)
-                prob = torch.exp(q_table)
-                dist = Categorical(prob)
-                action = dist.sample()
+
+                action = torch.argmax(q_table[0], dim=-1)
+
+
                 outputs = model(inputs, action)
             else:
                 outputs = model(inputs, None)
@@ -136,6 +137,8 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
         test_input, _ = next(iter(loader))
         test_input = torch.unsqueeze(test_input[0], 0)
         q_table, values = agent(test_input)
+        print(torch.argmax(q_table[0], dim=-1))
+        raise Exception
         f = open("permutation.txt", "a")
         values, action = torch.max(q_table, dim=-1)
         print(list(action), file=f)
