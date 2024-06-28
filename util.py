@@ -72,7 +72,6 @@ class CustomLoss(nn.Module):
     def forward(self, policy_per_action, values, rewards, policy):
         target_value = self.get_values(rewards, values)
         #advantage = target_value - values.squeeze()
-        print(target_value)
 
         clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-5, 1 - 1e-5)
