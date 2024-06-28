@@ -262,8 +262,8 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = None#"saves/model.pth"
-    model = "nothing"
+    base = "saves/best_rl_no_pretrain.pth"
+    model = "RL"
     pretrained = False
     verbose = True
     agent = None#"saves/agent.pth"

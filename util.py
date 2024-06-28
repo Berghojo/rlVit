@@ -72,7 +72,7 @@ class CustomLoss(nn.Module):
     def forward(self, policy_per_action, values, rewards, policy):
         target_value = self.get_values(rewards, values)
         #advantage = target_value - values.squeeze()
-
+        print(target_value)
 
         clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-5, 1 - 1e-5)
@@ -89,18 +89,19 @@ class CustomLoss(nn.Module):
     def get_values(self, reward, values):
         gamma = 0.9
         pos_reward = 1
-        neg_reward = 0
+        neg_reward = -1
         n_step_return = 197
         max_size = values.shape[1]
         r = reward.expand(-1, max_size)
         r2 = r.clone()
-        r2[r > 0] = 1
-        r2[r <= 0] = 0
+        r2[r >= 0] = pos_reward
+        r2[r < 0] = neg_reward
         # max_size = values.shape[1]
         # seq_len = r.shape[1]
         # for i in range(1, seq_len):
         #     for e in range(i + 1, i + 1 + n_step_return):
         #         if e < max_size:
+
         #             if (e - i) == n_step_return:
         #                 val[:, i] += (gamma ** (e - i)) * values[:, e]
         #             else:

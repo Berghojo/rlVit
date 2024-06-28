@@ -21,7 +21,6 @@ class Agent(nn.Module):
         modules = list(resnet.children())[:-2]
         self.resnet = nn.Sequential(*modules)
         self.decode_length = 196
-        self.class_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim), requires_grad=False)
         decoder_layer = nn.TransformerDecoderLayer(d_model=1024, nhead=8)
         self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=6)
 
@@ -29,12 +28,6 @@ class Agent(nn.Module):
             param.requires_grad = False
     def _process_input(self, x: torch.Tensor) -> torch.Tensor:
         x = self.resnet(x)
-
-
-
-
-
-
         return x
 
     def freeze(self, freeze):
@@ -48,8 +41,7 @@ class Agent(nn.Module):
 
 
     def forward(self, x):
-
-        x = self.dropout(self.resnet(x))
+        x = self.dropout(self.relu(self.resnet(x)))
         x = torch.flatten(x, 2)
         x = torch.permute(x, [0, 2, 1])
         x = self.relu(self.linear1(x)).permute(1, 0, 2)
