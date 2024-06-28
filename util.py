@@ -88,7 +88,7 @@ class CustomLoss(nn.Module):
     def get_values(self, reward, values):
         gamma = 0.9
         pos_reward = 1
-        neg_reward = -1
+        neg_reward = -0.01
         n_step_return = 197
         max_size = values.shape[1]
         r = reward.expand(-1, max_size)
