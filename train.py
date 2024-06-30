@@ -54,10 +54,10 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
-        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
-        print('[Test] ACC: {:.4f} '.format(accuracy))
-        print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-        summarize(writer, "test", -1, accuracy)
+        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
+        # print('[Test] ACC: {:.4f} '.format(accuracy))
+        # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+        # summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(10, pretrained)
         model = torch.nn.DataParallel(model)
@@ -182,10 +182,12 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
     return running_loss, correct / n_items
 
 
-def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True):
+def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, rl=False):
     criterion = torch.nn.CrossEntropyLoss()
 
     if train_agent:
+
+        criterion2 = torch.nn.CrossEntropyLoss(ignore_index=197, label_smoothing=0.7)
         loss_func = CustomLoss().to(device)
         model.eval()
         agent.train()
@@ -210,6 +212,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             if train_agent:
                 q_table, values = agent(inputs)
                 prob = torch.exp(q_table)
+
                 dist = Categorical(prob)
                 action = dist.sample()
                 outputs = model(inputs, action)
@@ -218,9 +221,15 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
                 rewards = normal - baseline
                 probs, preds = torch.max(outputs, 1)
-
-                loss, policy_loss, entropy_loss = loss_func(torch.exp(dist.log_prob(action)), values,
-                                                                        rewards, prob)
+                if rl:
+                    loss, policy_loss, entropy_loss = loss_func(torch.exp(dist.log_prob(action)), values,
+                                                                            rewards, prob)
+                else:
+                    bs, _, _, _ = inputs.shape
+                    l = torch.arange(0, 196).repeat(bs, 1).to(device)
+                    loss = criterion2(prob.permute(0, 2, 1), l)
+                    entropy_loss = 0
+                    policy_loss = 0
 
 
             else:
@@ -270,7 +279,7 @@ if __name__ == "__main__":
     verbose = True
     agent = None#"saves/agent.pth"
     size = 224
-    batch_size = 64
+    batch_size = 16
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size = batch_size)
