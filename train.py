@@ -35,6 +35,8 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.cuda.empty_cache()
     gc.collect()
+    launch_time = time.strftime("%Y_%m_%d-%H_%M")
+    writer = SummaryWriter(log_dir='logs/' + model_name + launch_time)
     train_loader, test_loader = get_loader(img_size, batch_size)
     if reinforce:
         print("Reinforce")
@@ -52,18 +54,17 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
-        # print("Running base evaluation")
-        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent)
-        # print('[Test] ACC: {:.4f} '.format(accuracy))
-        # print(f'[Test] CLASS ACC: {class_accuracy} @{-1}')
+        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
+        print('[Test] ACC: {:.4f} '.format(accuracy))
+        print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+        summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(10, pretrained)
         model = torch.nn.DataParallel(model)
         model = model.to(device)
 
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
-    launch_time = time.strftime("%Y_%m_%d-%H_%M")
-    writer = SummaryWriter(log_dir='logs/' + model_name + launch_time)
+
     scheduler = optim.lr_scheduler.CosineAnnealingLR(model_optimizer, max_epochs)
     scaler = GradScaler()
 
@@ -120,7 +121,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             if agent is not None:
                 q_table, values = agent(inputs)
 
-                action = torch.argmax(q_table[0], dim=-1)
+                action = torch.argmax(q_table, dim=-1)
 
 
                 outputs = model(inputs, action)
@@ -137,8 +138,6 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
         test_input, _ = next(iter(loader))
         test_input = torch.unsqueeze(test_input[0], 0)
         q_table, values = agent(test_input)
-        print(torch.argmax(q_table[0], dim=-1))
-        raise Exception
         f = open("permutation.txt", "a")
         values, action = torch.max(q_table, dim=-1)
         print(list(action), file=f)
