@@ -265,7 +265,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     action = torch.argmax(actions, dim=-1)
                     start[:, i] = action
                 outputs = model(inputs, start)
-                probs, preds = torch.max(outputs, 1)
+                probs, preds = torch.max(outputs, -1)
                 loss = criterion(outputs, labels)
 
         scaler.scale(loss).backward()
@@ -280,9 +280,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             running_loss += loss.item() * inputs.size(0)
 
 
-        if counter % 1000 == 99:
+        if counter % 1000 == 0:
 
-            print(torch.argmax(prob[0], dim=-1))
+            print(torch.argmax(probs[0], dim=-1))
             print(f'Reinforce_Loss {loss}')
             acc = correct / n_items
             print(acc)
