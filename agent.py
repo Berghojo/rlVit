@@ -72,3 +72,23 @@ class Agent(nn.Module):
         value = self.head2(x)
         return self.softmax(tbl), value
 
+class SimpleAgent(nn.Module):
+
+    def __init__(self, n_patches):
+        super(SimpleAgent, self).__init__()
+        self.n_actions = n_patches+1
+        self.linear1 = nn.Linear(in_features=150528, out_features=1024)
+        self.action= nn.Linear(in_features=1024, out_features=self.n_actions)
+        self.value = nn.Linear(in_features=1024, out_features=1)
+        self.softmax = nn.LogSoftmax(dim=-1)
+        self.relu = nn.ReLU()
+    def freeze(self, freeze):
+        print("Setting Agent Training to: ", freeze)
+        for param in self.parameters():
+            param.requires_grad = freeze
+    def forward(self, state):
+        state = state.flatten(1)
+        x = self.relu(self.linear1(state))
+        actor = self.softmax(self.action(x))
+        critic = self.value(x)
+        return actor, critic

@@ -71,39 +71,44 @@ class CustomLoss(nn.Module):
         self.entropy_factor = 0.01
     def forward(self, policy_per_action, values, rewards, policy):
         target_value = self.get_values(rewards, values)
-        #advantage = target_value - values.squeeze()
+        advantage = target_value - values.squeeze()
 
         clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-5, 1 - 1e-5)
 
-        #value_loss = torch.mean(advantage ** 2)
-        policy_loss = -torch.mean(torch.log(clipped_policy_per_action) * target_value)
+        value_loss = torch.mean(advantage ** 2)
+        policy_loss = -torch.mean(torch.log(clipped_policy_per_action) * advantage.detach())
 
         entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
 
         entropy_loss = -torch.mean(entropy)
-        loss = policy_loss + self.entropy_factor * entropy_loss
+        loss = policy_loss + self.entropy_factor * entropy_loss + self.value_factor * value_loss
         return loss, policy_loss, entropy_loss
 
     def get_values(self, reward, values):
+
+
         gamma = 0.9
         pos_reward = 1
         neg_reward = -0.01
-        n_step_return = 197
+        n_step_return = 5
+        values = values.squeeze()
+
+        reward[reward == 1] = pos_reward
+        reward[reward == 0] = neg_reward
+        r = torch.zeros_like(values)
+        val = torch.zeros_like(values)
+        r[:, -1] = reward.squeeze()
+
         max_size = values.shape[1]
-        r = reward.expand(-1, max_size)
-        r2 = r.clone()
-        r2[r >= 0] = pos_reward
-        r2[r < 0] = neg_reward
-        # max_size = values.shape[1]
-        # seq_len = r.shape[1]
-        # for i in range(1, seq_len):
-        #     for e in range(i + 1, i + 1 + n_step_return):
-        #         if e < max_size:
+        seq_len = r.shape[1]
+        for i in range(1, seq_len):
+            for e in range(i + 1, i + 1 + n_step_return):
+                if e < max_size:
+                    if (e - i) == n_step_return:
+                        val[:, i] += (gamma ** (e - i)) * values[:, e]
+                        break
+                    else:
+                        val[:, i] += (gamma ** (e - i)) * r[:, e]
 
-        #             if (e - i) == n_step_return:
-        #                 val[:, i] += (gamma ** (e - i)) * values[:, e]
-        #             else:
-        #                 val[:, i] += (gamma ** (e - i)) * r[:, e]
-
-        return r2
+        return val

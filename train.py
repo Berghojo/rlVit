@@ -40,10 +40,10 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     train_loader, test_loader = get_loader(img_size, batch_size)
     if reinforce:
         print("Reinforce")
-        agent = Agent(196, pretrained=pretrained)
+        agent = SimpleAgent(196)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
-        agent_optimizer = optim.RMSprop(agent.parameters(), lr=0.00025)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
         if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
     else:
@@ -54,10 +54,10 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
-        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
-        # print('[Test] ACC: {:.4f} '.format(accuracy))
-        # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-        # summarize(writer, "test", -1, accuracy)
+        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
+        print('[Test] ACC: {:.4f} '.format(accuracy))
+        print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+        summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(10, pretrained)
         model = torch.nn.DataParallel(model)
@@ -72,11 +72,14 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
+            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+                                  verbose=verbose)
+
             agent_loss, agent_acc, policy_loss, entropy_loss = train_rl(train_loader, device, model,
-                                                                                    agent_optimizer, scaler, agent,
-                                                                                    train_agent=True, verbose=verbose)
-            # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-            #                       verbose=verbose)
+                                                                        agent_optimizer, scaler, agent,
+                                                                        train_agent=True, verbose=verbose)
+
+
 
 
 
@@ -86,7 +89,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
-        # summarize(writer, "train", epoch, acc, loss)
+        summarize(writer, "train", epoch, acc, loss)
         class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
         print('[Test] ACC: {:.4f} '.format(accuracy))
         print(f'[Test] CLASS ACC: {class_accuracy} @{epoch}')
@@ -98,10 +101,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
             if agent is not None:
                 torch.save(agent.state_dict(), f"saves/best_{model_name}_agent_@{launch_time}.pth")
 
-        scheduler.step(epoch)
+        scheduler.step()
 
 
 def summarize(writer, split, epoch, acc, loss=None):
+
     writer.add_scalar('accuracy/' + split, acc, epoch)
     if loss:
         writer.add_scalar('Loss/' + split, loss, epoch)
@@ -119,12 +123,16 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
             if agent is not None:
-                q_table, values = agent(inputs)
+                bs, _, _, _ = inputs.shape
+                start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
+                for i in range(196):
+                    state = model.module.get_state(inputs, start)
+                    actions, values = agent(state)
 
-                action = torch.argmax(q_table, dim=-1)
+                    action = torch.argmax(actions, dim=-1)
+                    start[:, i] = action
 
-
-                outputs = model(inputs, action)
+                outputs = model(inputs, start)
             else:
                 outputs = model(inputs, None)
             _, preds = torch.max(outputs, 1)
@@ -139,6 +147,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
         test_input = torch.unsqueeze(test_input[0], 0)
         q_table, values = agent(test_input)
         f = open("permutation.txt", "a")
+        print(q_table.shape)
         values, action = torch.max(q_table, dim=-1)
         print(list(action), file=f)
         print(list(values), file=f)
@@ -182,12 +191,12 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
     return running_loss, correct / n_items
 
 
-def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, rl=False):
+def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, rl=True):
     criterion = torch.nn.CrossEntropyLoss()
 
     if train_agent:
 
-        criterion2 = torch.nn.CrossEntropyLoss(ignore_index=197, label_smoothing=0.7)
+        criterion2 = torch.nn.CrossEntropyLoss(ignore_index=196, label_smoothing=0.7)
         loss_func = CustomLoss().to(device)
         model.eval()
         agent.train()
@@ -205,27 +214,40 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     counter = 0
     for inputs, labels in tqdm(loader, disable=not verbose):
         inputs = inputs.to(device)
+        bs, _, _, _ = inputs.shape
         labels = labels.type(torch.LongTensor)
         labels = labels.to(device)
+
+        start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
+        val = torch.zeros((bs, 196), dtype=torch.float32, device=device)
+        action_probs = torch.zeros((bs, 196), dtype=torch.float32, device=device)
         optimizer.zero_grad()
         with torch.autocast(device_type='cuda', dtype=torch.float16):
             if train_agent:
-                q_table, values = agent(inputs)
-                prob = torch.exp(q_table)
 
-                dist = Categorical(prob)
-                action = dist.sample()
-                outputs = model(inputs, action)
+                for i in range(196):
+                    state = model.module.get_state(inputs, start)
+                    actions, values = agent(state)
+
+                    prob = torch.exp(actions)
+                    dist = Categorical(prob)
+                    action = dist.sample()
+
+                    action_prob = prob.gather(-1, action.unsqueeze(-1))
+                    action_probs[:, i] = action_prob.squeeze()
+                    start[:, i] = action
+                    val[:, i] = values.squeeze()
+
+                outputs = model(inputs, start)
                 baseline = model(inputs, None)
                 baseline = torch.gather(torch.softmax(baseline, dim=-1), -1, labels.unsqueeze(-1))
                 normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
                 rewards = normal - baseline
                 probs, preds = torch.max(outputs, 1)
                 if rl:
-                    loss, policy_loss, entropy_loss = loss_func(torch.exp(dist.log_prob(action)), values,
+                    loss, policy_loss, entropy_loss = loss_func(action_probs, val,
                                                                             rewards, prob)
                 else:
-                    bs, _, _, _ = inputs.shape
                     l = torch.arange(0, 196).repeat(bs, 1).to(device)
                     loss = criterion2(prob.permute(0, 2, 1), l)
                     entropy_loss = 0
@@ -234,12 +256,15 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             else:
 
-                q_table, values = agent(inputs)
-                prob = torch.exp(q_table)
+                bs, _, _, _ = inputs.shape
+                start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
+                for i in range(196):
+                    state = model.module.get_state(inputs, start)
+                    actions, values = agent(state)
 
-                dist = Categorical(prob)
-                action = dist.sample()
-                outputs = model(inputs, action)
+                    action = torch.argmax(actions, dim=-1)
+                    start[:, i] = action
+                outputs = model(inputs, start)
                 probs, preds = torch.max(outputs, 1)
                 loss = criterion(outputs, labels)
 
@@ -255,7 +280,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             running_loss += loss.item() * inputs.size(0)
 
 
-        if counter % 1000 == 999:
+        if counter % 1000 == 99:
+
+            print(torch.argmax(prob[0], dim=-1))
             print(f'Reinforce_Loss {loss}')
             acc = correct / n_items
             print(acc)
@@ -273,8 +300,8 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = "saves/best_rl_no_pretrain.pth"
-    model = "RL"
+    base = None #"saves/best_rl_no_pretrain.pth"
+    model = "Sequential"
     pretrained = False
     verbose = True
     agent = None#"saves/agent.pth"

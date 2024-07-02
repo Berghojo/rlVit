@@ -242,18 +242,17 @@ class ViT(torch.nn.Module):
         x = torch.cat([batch_class_token, x], dim=1)
         #
         x = x + self.pos_embedding[i]
-
+        state = None
         if permutation is not None:
 
             dark_patch = self.dark_patch.expand(n, -1, -1).detach()
             new_img = torch.cat([x[:, 1:], dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
             new_img = torch.gather(new_img, 1, expanded_permutations)
+            state = new_img
             x[:, 1:] = new_img
         x = x + self.pos_encoder[0](x)
-
-
-        return x
+        return x, state
 
     def freeze(self, freeze):
         for param in self.parameters():
@@ -262,7 +261,7 @@ class ViT(torch.nn.Module):
     def forward(self, x, permutation):
 
 
-        x = self._process_input(x, self.patch_sizes[0], 0, permutation)
+        x, _ = self._process_input(x, self.patch_sizes[0], 0, permutation)
 
         x = [x]
         for i in range(len(self.parallel_encoders)-1):
@@ -275,3 +274,6 @@ class ViT(torch.nn.Module):
         x = self.head(x)
         return x
 
+    def get_state(self, x, permutation):
+        _, state = self._process_input(x, self.patch_sizes[0], 0, permutation)
+        return state
