@@ -72,12 +72,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
-            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                                  verbose=verbose)
-
             agent_loss, agent_acc, policy_loss, entropy_loss = train_rl(train_loader, device, model,
                                                                         agent_optimizer, scaler, agent,
                                                                         train_agent=True, verbose=verbose)
+            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+                                  verbose=verbose)
+
+
 
 
 
@@ -239,11 +240,13 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     val[:, i] = values.squeeze()
 
                 outputs = model(inputs, start)
+                normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+                del outputs
                 baseline = model(inputs, None)
                 baseline = torch.gather(torch.softmax(baseline, dim=-1), -1, labels.unsqueeze(-1))
-                normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+
                 rewards = normal - baseline
-                probs, preds = torch.max(outputs, 1)
+                del baseline
                 if rl:
                     loss, policy_loss, entropy_loss = loss_func(action_probs, val,
                                                                             rewards, prob)
@@ -306,7 +309,7 @@ if __name__ == "__main__":
     verbose = True
     agent = None#"saves/agent.pth"
     size = 224
-    batch_size = 64
+    batch_size = 16
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size = batch_size)
