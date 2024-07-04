@@ -94,8 +94,8 @@ class CustomLoss(nn.Module):
         n_step_return = 5
         values = values.squeeze()
 
-        reward[reward == 1] = pos_reward
-        reward[reward == 0] = neg_reward
+        reward[reward >= 0] = pos_reward
+        reward[reward < 0] = neg_reward
         r = torch.zeros_like(values)
         val = torch.zeros_like(values)
         r[:, -1] = reward.squeeze()
@@ -111,4 +111,4 @@ class CustomLoss(nn.Module):
                     else:
                         val[:, i] += (gamma ** (e - i)) * r[:, e]
 
-        return val
+        return val.detach()
