@@ -77,9 +77,9 @@ class SimpleAgent(nn.Module):
     def __init__(self, n_patches):
         super(SimpleAgent, self).__init__()
         self.n_actions = n_patches+1
-        self.linear1 = nn.Linear(in_features=150528, out_features=1024)
-        self.action= nn.Linear(in_features=1024, out_features=self.n_actions)
-        self.value = nn.Linear(in_features=1024, out_features=1)
+        self.linear1 = nn.Linear(in_features=150528, out_features=128)
+        self.action= nn.Linear(in_features=128, out_features=self.n_actions)
+        self.value = nn.Linear(in_features=128, out_features=1)
         self.softmax = nn.LogSoftmax(dim=-1)
         self.relu = nn.ReLU()
     def freeze(self, freeze):
