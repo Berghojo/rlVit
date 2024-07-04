@@ -240,6 +240,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     val[:, i] = values.squeeze()
 
                 outputs = model(inputs, start)
+                probs, preds = torch.max(outputs, 1)
                 normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
                 del outputs
                 baseline = model(inputs, None)
@@ -247,6 +248,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 rewards = normal - baseline
                 del baseline
+                del normal
                 if rl:
                     loss, policy_loss, entropy_loss = loss_func(action_probs, val,
                                                                             rewards, prob)
