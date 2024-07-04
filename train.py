@@ -72,11 +72,12 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
+            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+                                  verbose=verbose)
             agent_loss, agent_acc, policy_loss, entropy_loss = train_rl(train_loader, device, model,
                                                                         agent_optimizer, scaler, agent,
                                                                         train_agent=True, verbose=verbose)
-            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                                  verbose=verbose)
+
 
 
 
@@ -262,13 +263,14 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             else:
 
                 bs, _, _, _ = inputs.shape
-                start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
-                for i in range(196):
-                    state = model.module.get_state(inputs, start)
-                    actions, values = agent(state)
+                with torch.no_grad():
+                    start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
+                    for i in range(196):
+                        state = model.module.get_state(inputs, start)
+                        actions, values = agent(state)
 
-                    action = torch.argmax(actions, dim=-1)
-                    start[:, i] = action
+                        action = torch.argmax(actions, dim=-1)
+                        start[:, i] = action
                 outputs = model(inputs, start)
                 probs, preds = torch.max(outputs, -1)
                 loss = criterion(outputs, labels)
