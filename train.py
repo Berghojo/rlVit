@@ -277,8 +277,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 probs, preds = torch.max(outputs, -1)
                 loss = criterion(outputs, labels)
         if rl:
-            if len(exp_replay) >= 64:
-                batch = exp_replay.sample(64)
+            batchsize = 128
+            if len(exp_replay) >= batchsize:
+                batch = exp_replay.sample(batchsize)
                 batch = Transition(*zip(*batch))
                 state_batch = torch.stack(batch.state)
                 action_batch = torch.stack(batch.action)
@@ -296,7 +297,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 non_final_next_states = torch.stack([s for s in batch.next_state
                                                    if s is not None])
-                next_state_values = torch.zeros(64, device=device)
+                next_state_values = torch.zeros(batchsize, device=device)
 
 
 
@@ -305,7 +306,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 # Compute Huber loss
                 criterion = CustomLoss()
-                loss = criterion(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
+                loss, entropy_loss, policy_loss = criterion(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
 
 
         else:
@@ -353,7 +354,7 @@ if __name__ == "__main__":
     agent = None#"saves/agent.pth"
 
     size = 224
-    batch_size = 16
+    batch_size = 64
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size = batch_size)
