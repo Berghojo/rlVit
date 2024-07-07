@@ -342,7 +342,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
+    #os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
     set_deterministic()
     num_classes = 10
     max_epochs = 300
