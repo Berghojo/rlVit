@@ -1,9 +1,9 @@
 from torch import nn
 from torchvision.models import resnet18
 import torch
-from util import PositionalEncoding1D
+import random
+from collections import namedtuple, deque
 
-from copy import deepcopy
 class Agent(nn.Module):
     def __init__(self, n_patches, pretrained):
         super(Agent, self).__init__()
@@ -92,3 +92,23 @@ class SimpleAgent(nn.Module):
         actor = self.softmax(self.action(x))
         critic = self.value(x)
         return actor, critic
+
+
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+
+
+class ReplayMemory(object):
+
+    def __init__(self, capacity):
+        self.memory = deque([], maxlen=capacity)
+
+    def push(self, *args):
+        """Save a transition"""
+        self.memory.append(Transition(*args))
+
+    def sample(self, batch_size):
+        return random.sample(self.memory, batch_size)
+
+    def __len__(self):
+        return len(self.memory)

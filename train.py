@@ -11,7 +11,7 @@ from torch.distributions.categorical import Categorical
 
 import os
 
-from util import CustomLoss
+from util import CustomLoss, get_values
 from agent import *
 from models import *
 from data import *
@@ -198,7 +198,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     criterion = torch.nn.CrossEntropyLoss()
 
     if train_agent:
-
+        exp_replay = ReplayMemory(10000)
         criterion2 = torch.nn.CrossEntropyLoss(ignore_index=196, label_smoothing=0.7)
         loss_func = CustomLoss().to(device)
         model.eval()
@@ -222,43 +222,45 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         labels = labels.to(device)
 
         start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
-        val = torch.zeros((bs, 196), dtype=torch.float32, device=device)
+
         action_probs = torch.zeros((bs, 196), dtype=torch.float32, device=device)
         optimizer.zero_grad()
-        with torch.autocast(device_type='cuda', dtype=torch.float16):
+        with torch.no_grad():
             if train_agent:
+                og_baseline = model(inputs, None)
 
+                old_state = None
                 for i in range(196):
-                    state = model.module.get_state(inputs, start)
-                    actions, values = agent(state.detach())
+
+                    state = model.module.get_state(inputs, start).detach()
+                    if old_state is not None:
+                        outputs = model(inputs, start).detach()
+                        normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+
+                        baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+
+                        rewards = (normal - baseline).flatten()
+
+                        probs, preds = torch.max(outputs, 1)
+
+
+                        for b in range(bs):
+                            exp_replay.push(old_state[b], action[b], state[b], rewards[b])
+
+                    actions, values = agent(state)
+
                     prob = torch.exp(actions)
+
                     dist = Categorical(prob)
                     action = dist.sample()
 
-                    action_prob = prob.gather(-1, action.unsqueeze(-1))
-                    action_probs[:, i] = action_prob.squeeze()
+
                     start[:, i] = action
-                    val[:, i] = values.squeeze()
 
-                outputs = model(inputs, start)
-                probs, preds = torch.max(outputs, 1)
-                normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
-                del outputs
-                baseline = model(inputs, None)
-                baseline = torch.gather(torch.softmax(baseline, dim=-1), -1, labels.unsqueeze(-1))
 
-                rewards = normal - baseline
-                del baseline
-                del normal
-                if rl:
-                    loss, policy_loss, entropy_loss = loss_func(action_probs, val,
-                                                                            rewards, prob)
-                else:
-                    l = torch.arange(0, 196).repeat(bs, 1).to(device)
-                    loss = criterion2(prob.permute(0, 2, 1), l)
-                    entropy_loss = 0
-                    policy_loss = 0
-
+                    old_state = state
+                for b in range(bs):
+                    exp_replay.push(old_state[b], action[b], None, rewards[b])
 
             else:
 
@@ -274,7 +276,43 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 outputs = model(inputs, start)
                 probs, preds = torch.max(outputs, -1)
                 loss = criterion(outputs, labels)
+        if rl:
+            if len(exp_replay) >= 64:
+                batch = exp_replay.sample(64)
+                batch = Transition(*zip(*batch))
+                state_batch = torch.stack(batch.state)
+                action_batch = torch.stack(batch.action)
+                reward_batch = torch.stack(batch.reward)
+                action, value = agent(state_batch)
+                state_action_values = torch.exp(action).gather(1, action_batch.unsqueeze(-1))
+                gamma = 0.9
+                pos_reward = 1
+                neg_reward = -0.01
 
+                reward_batch[reward_batch >= 0] = pos_reward
+                reward_batch[reward_batch < 0] = neg_reward
+                non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
+                                                        batch.next_state)), device=device, dtype=torch.bool)
+
+                non_final_next_states = torch.stack([s for s in batch.next_state
+                                                   if s is not None])
+                next_state_values = torch.zeros(64, device=device)
+
+
+
+                next_state_values[non_final_mask] = agent(non_final_next_states)[1].squeeze()
+                expected_state_action_values = (next_state_values * gamma) + reward_batch
+
+                # Compute Huber loss
+                criterion = CustomLoss()
+                loss = criterion(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
+
+
+        else:
+            l = torch.arange(0, 196).repeat(bs, 1).to(device)
+            loss = criterion2(prob.permute(0, 2, 1), l)
+            entropy_loss = 0
+            policy_loss = 0
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
@@ -298,12 +336,13 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         del loss
 
     if train_agent:
-        return running_loss, correct / n_items, policy_loss, entropy_loss
+        return running_loss
     return running_loss, correct / n_items
 
 
 
 if __name__ == "__main__":
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
     set_deterministic()
     num_classes = 10
     max_epochs = 300
@@ -312,8 +351,9 @@ if __name__ == "__main__":
     pretrained = False
     verbose = True
     agent = None#"saves/agent.pth"
+
     size = 224
-    batch_size = 64
+    batch_size = 16
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size = batch_size)

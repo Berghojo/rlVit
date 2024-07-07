@@ -1,7 +1,7 @@
-
 import torch
 import torch.nn as nn
 import numpy as np
+
 
 def get_emb(sin_inp):
     """
@@ -9,6 +9,8 @@ def get_emb(sin_inp):
     """
     emb = torch.stack((sin_inp.sin(), sin_inp.cos()), dim=-1)
     return torch.flatten(emb, -2, -1)
+
+
 class PositionalEncoding1D(nn.Module):
     def __init__(self, channels):
         """
@@ -64,51 +66,38 @@ class PositionalEncodingPermute1D(nn.Module):
     def org_channels(self):
         return self.penc.org_channels
 
+
 class CustomLoss(nn.Module):
     def __init__(self):
         super(CustomLoss, self).__init__()
         self.value_factor = 0.5
         self.entropy_factor = 0.01
-    def forward(self, policy_per_action, values, rewards, policy):
-        target_value = self.get_values(rewards, values)
+
+    def forward(self, policy_per_action, values, rewards):
+        target_value = rewards
         advantage = target_value - values.squeeze()
 
-        clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
+        #clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-5, 1 - 1e-5)
 
         value_loss = torch.mean(advantage ** 2)
         policy_loss = -torch.mean(torch.log(clipped_policy_per_action) * advantage.detach())
 
-        entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
-
-        entropy_loss = -torch.mean(entropy)
-        loss = policy_loss + self.entropy_factor * entropy_loss + self.value_factor * value_loss
-        return loss, policy_loss, entropy_loss
-
-    def get_values(self, reward, values):
+        # entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
+        #
+        # entropy_loss = -torch.mean(entropy)
+        loss = policy_loss + self.value_factor * value_loss
+        return loss, policy_loss, 0
 
 
-        gamma = 0.9
-        pos_reward = 1
-        neg_reward = -0.01
-        n_step_return = 5
-        values = values.squeeze()
+def get_values(reward, values):
+    print(reward.shape, values.shape)
 
-        reward[reward >= 0] = pos_reward
-        reward[reward < 0] = neg_reward
-        r = torch.zeros_like(values)
-        val = torch.zeros_like(values)
-        r[:, -1] = reward.squeeze()
+    n_step_return = 5
+    values = values.squeeze()
 
-        max_size = values.shape[1]
-        seq_len = r.shape[1]
-        for i in range(1, seq_len):
-            for e in range(i + 1, i + 1 + n_step_return):
-                if e < max_size:
-                    if (e - i) == n_step_return:
-                        val[:, i] += (gamma ** (e - i)) * values[:, e]
-                        break
-                    else:
-                        val[:, i] += (gamma ** (e - i)) * r[:, e]
+    reward[reward >= 0] = pos_reward
+    reward[reward < 0] = neg_reward
 
-        return val.detach()
+
+    return
