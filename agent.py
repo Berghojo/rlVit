@@ -3,6 +3,7 @@ from torchvision.models import resnet18
 import torch
 import random
 from collections import namedtuple, deque
+import numpy as np
 
 class Agent(nn.Module):
     def __init__(self, n_patches, pretrained):
@@ -101,14 +102,25 @@ Transition = namedtuple('Transition',
 class ReplayMemory(object):
 
     def __init__(self, capacity):
-        self.memory = deque([], maxlen=capacity)
+        self.states = deque([], maxlen=capacity)
+        self.actions = deque([], maxlen=capacity)
+        self.rewards = deque([], maxlen=capacity)
+        self.next_states = deque([], maxlen=capacity)
 
-    def push(self, *args):
+    def push(self, states, actions, next_states, rewards):
         """Save a transition"""
-        self.memory.append(Transition(*args))
+        self.states.extend(states)
+        self.actions.extend(actions)
+        self.rewards.extend(rewards)
+        self.next_states.extend(next_states)
 
     def sample(self, batch_size):
-        return random.sample(self.memory, batch_size)
+        sample = random.sample(range(len(self)), batch_size)
+        s = torch.stack(list(self.states))[sample]
+        a = torch.stack(list(self.actions))[sample]
+        r = torch.tensor(list(self.rewards))[sample]
+        ns = torch.stack(list(self.next_states))[sample]
+        return s, a, r, ns
 
     def __len__(self):
-        return len(self.memory)
+        return len(self.states)
