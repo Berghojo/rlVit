@@ -238,7 +238,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 probs, preds = torch.max(outputs, -1)
             loss = criterion(outputs, labels)
         if rl and train_agent:
-            batchsize = 16
+            batchsize = 128
             if len(exp_replay) >= batchsize:
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     state_batch, action_batch, reward_batch, next_state_batch = exp_replay.sample(batchsize)
@@ -343,7 +343,7 @@ if __name__ == "__main__":
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 16
+    batch_size = 64
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
