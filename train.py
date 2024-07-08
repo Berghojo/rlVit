@@ -293,7 +293,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         del loss
 
     if train_agent:
-        return running_loss
+        return running_loss, correct / n_items, entropy_loss, policy_loss
     return running_loss, correct / n_items
 
 
