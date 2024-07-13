@@ -146,12 +146,16 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     if agent is not None:
         test_input, _ = next(iter(loader))
         test_input = torch.unsqueeze(test_input[0], 0)
-        q_table, values = agent(test_input)
+        start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
+        for i in range(196):
+            state = model.module.get_state(test_input, start)
+            actions, values = agent(state)
+            action = torch.argmax(actions, dim=-1)
+            start[:, i] = action
         f = open("permutation.txt", "a")
-        print(q_table.shape)
-        values, action = torch.max(q_table, dim=-1)
-        print(list(action), file=f)
-        print(list(values), file=f)
+
+        print(list(start), file=f)
+
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
     accuracy = sum(correct) / sum(overall)
     classes = ('plane', 'car', 'bird', 'cat',
