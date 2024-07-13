@@ -74,20 +74,21 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
-            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                                  verbose=verbose)
+            # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+            #                       verbose=verbose)
+            #
             agent_loss, agent_acc, policy_loss, entropy_loss = train_rl(train_loader, device, model,
                                                                         agent_optimizer, scaler, agent,
                                                                         train_agent=True, verbose=verbose)
 
-
-            summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
             summarize_agent(writer, "train_agent", epoch, policy_loss, entropy_loss)
+            summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
+
 
 
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
-        summarize(writer, "train", epoch, acc, loss)
+        #summarize(writer, "train", epoch, acc, loss)
         class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
         print('[Test] ACC: {:.4f} '.format(accuracy))
         print(f'[Test] CLASS ACC: {class_accuracy} @{epoch}')
@@ -343,7 +344,7 @@ if __name__ == "__main__":
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 64
+    batch_size = 16
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
