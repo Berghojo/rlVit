@@ -146,7 +146,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     if agent is not None:
         test_input, _ = next(iter(loader))
         test_input = torch.unsqueeze(test_input[0], 0)
-        start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
+        start = torch.full((1, 196), 196, dtype=torch.long, device=device)
         for i in range(196):
             state = model.module.get_state(test_input.to(device), start)
             actions, values = agent(state)
@@ -348,7 +348,7 @@ if __name__ == "__main__":
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 16
+    batch_size = 32
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
