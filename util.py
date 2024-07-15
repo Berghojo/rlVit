@@ -80,24 +80,13 @@ class CustomLoss(nn.Module):
         #clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-5, 1 - 1e-5)
 
-        value_loss = torch.mean(advantage ** 2)
-        policy_loss = -torch.mean(torch.log(clipped_policy_per_action) * advantage.detach())
+        #value_loss = torch.mean(advantage ** 2)
+        policy_loss = -torch.mean(torch.log(clipped_policy_per_action) * rewards)
 
         # entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
         #
         # entropy_loss = -torch.mean(entropy)
-        loss = policy_loss + self.value_factor * value_loss
-        return loss, policy_loss, 0
+        # loss = policy_loss + self.value_factor * value_loss
+        return policy_loss, policy_loss, 0
 
 
-def get_values(reward, values):
-    print(reward.shape, values.shape)
-
-    n_step_return = 5
-    values = values.squeeze()
-
-    reward[reward >= 0] = pos_reward
-    reward[reward < 0] = neg_reward
-
-
-    return

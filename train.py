@@ -11,7 +11,7 @@ from torch.distributions.categorical import Categorical
 
 import os
 
-from util import CustomLoss, get_values
+from util import CustomLoss
 from agent import *
 from models import *
 from data import *
@@ -55,10 +55,10 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
-        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
-        print('[Test] ACC: {:.4f} '.format(accuracy))
-        print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-        summarize(writer, "test", -1, accuracy)
+        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
+        # print('[Test] ACC: {:.4f} '.format(accuracy))
+        # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+        #summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
             10, pretrained)
@@ -255,23 +255,23 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     state_action_values = torch.exp(action).gather(1, action_batch.unsqueeze(-1))
                     gamma = 0.9
                     pos_reward = 1
-                    neg_reward = -0.01
+                    neg_reward = 0
                     reward_batch = reward_batch.to(device)
                     reward_batch[reward_batch >= 0] = pos_reward
                     reward_batch[reward_batch < 0] = neg_reward
-                    non_final_mask = next_state_batch == None
+                    # non_final_mask = next_state_batch == None
+                    #
+                    # non_final_next_states = torch.stack([s for s in next_state_batch
+                    #                                    if s is not None])
+                    # next_state_values = torch.zeros(batchsize, device=device)
 
-                    non_final_next_states = torch.stack([s for s in next_state_batch
-                                                       if s is not None])
-                    next_state_values = torch.zeros(batchsize, device=device)
 
-
-                    with torch.no_grad():
-                        next_state_values[non_final_mask] = agent(non_final_next_states)[1].squeeze()
-                    expected_state_action_values = (next_state_values * gamma) + reward_batch
+                    # with torch.no_grad():
+                    #     next_state_values[non_final_mask] = agent(non_final_next_states)[1].squeeze()
+                    # expected_state_action_values = (next_state_values * gamma) + reward_batch
 
                     criterion = CustomLoss()
-                    loss, entropy_loss, policy_loss = criterion(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
+                    loss, entropy_loss, policy_loss = criterion(state_action_values, value.squeeze(), reward_batch.unsqueeze(1))
 
 
 
@@ -298,7 +298,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         del loss
 
     if train_agent:
-        return running_loss, correct / n_items, entropy_loss, policy_loss
+        return running_loss, correct / n_items, entropy_loss, torch.sum(reward_batch)
     return running_loss, correct / n_items
 
 
@@ -348,7 +348,7 @@ if __name__ == "__main__":
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 32
+    batch_size = 16
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
