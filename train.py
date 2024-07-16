@@ -44,7 +44,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = SimpleAgent(196)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-8)
         if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
     else:
@@ -201,7 +201,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
     if train_agent:
         exp_replay = ReplayMemory(10000)
-        criterion2 = torch.nn.CrossEntropyLoss(ignore_index=196, label_smoothing=0.7)
+        #criterion2 = torch.nn.CrossEntropyLoss(ignore_index=196, label_smoothing=0.7)
         loss_func = CustomLoss().to(device)
         model.eval()
         agent.train()
@@ -243,8 +243,10 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 probs, preds = torch.max(outputs, -1)
             loss = criterion(outputs, labels)
         if rl and train_agent:
-            batchsize = 128
-            if len(exp_replay) >= batchsize:
+            cum_sum = 0
+            batchsize = 16
+            if len(exp_replay) > batchsize:
+
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     state_batch, action_batch, reward_batch, next_state_batch = exp_replay.sample(batchsize)
                     state_batch = state_batch.to(device)
@@ -259,46 +261,44 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     reward_batch = reward_batch.to(device)
                     reward_batch[reward_batch >= 0] = pos_reward
                     reward_batch[reward_batch < 0] = neg_reward
-                    # non_final_mask = next_state_batch == None
-                    #
-                    # non_final_next_states = torch.stack([s for s in next_state_batch
-                    #                                    if s is not None])
-                    # next_state_values = torch.zeros(batchsize, device=device)
+                    cum_sum += torch.sum(reward_batch)
+                    non_final_mask = next_state_batch == None
+
+                    non_final_next_states = torch.stack([s for s in next_state_batch
+                                                       if s is not None])
+                    next_state_values = torch.zeros(batchsize, device=device)
 
 
-                    # with torch.no_grad():
-                    #     next_state_values[non_final_mask] = agent(non_final_next_states)[1].squeeze()
-                    # expected_state_action_values = (next_state_values * gamma) + reward_batch
+                    with torch.no_grad():
+                        next_state_values[non_final_mask] = agent(non_final_next_states)[1].squeeze()
+                    expected_state_action_values = (next_state_values * gamma) + reward_batch
 
-                    criterion = CustomLoss()
-                    loss, entropy_loss, policy_loss = criterion(state_action_values, value.squeeze(), reward_batch.unsqueeze(1))
+            loss, entropy_loss, policy_loss = loss_func(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
 
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
-
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-        correct += torch.sum(preds == labels)
-        n_items += inputs.size(0)
-        if train_agent:
-            running_loss += loss.item()
-        else:
-            running_loss += loss.item() * inputs.size(0)
+    correct += torch.sum(preds == labels)
+    n_items += inputs.size(0)
+    if train_agent:
+        running_loss += loss.item()
+    else:
+        running_loss += loss.item() * inputs.size(0)
 
 
-        if counter % 1000 == 0:
+    if counter % 1000 == 0:
 
-            print(torch.argmax(probs[0], dim=-1))
-            print(f'Reinforce_Loss {loss}')
-            acc = correct / n_items
-            print(acc)
+        print(torch.argmax(probs[0], dim=-1))
+        print(f'Reinforce_Loss {loss}')
+        acc = correct / n_items
+        print(acc)
 
-        counter += 1
-        del loss
+    counter += 1
+    del loss
 
     if train_agent:
-        return running_loss, correct / n_items, entropy_loss, torch.sum(reward_batch)
+        return running_loss, correct / n_items, entropy_loss, cum_sum
     return running_loss, correct / n_items
 
 
@@ -311,7 +311,7 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model):
 
             state = model.module.get_state(inputs, start).detach()
             if old_state is not None:
-                exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), list(state.to("cpu")), [-0.01] * bs)
+                exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), list(state.to("cpu")), [0] * bs)
 
             actions, values = agent(state)
 
