@@ -121,11 +121,7 @@ class ReplayMemory(object):
         a = torch.stack(list(self.actions))[sample]
         r = torch.tensor(list(self.rewards))[sample]
         ns = torch.stack(list(self.next_states))[sample]
-        for i in sorted(sample, reverse=True):
-            del self.states[i]
-            del self.actions[i]
-            del self.rewards[i]
-            del self.next_states[i]
+
         return s, a, r, ns
 
     def __len__(self):
