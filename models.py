@@ -2,9 +2,10 @@
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.models.vision_transformer import vit_b_16, vit_b_32, VisionTransformer, EncoderBlock
+from torchvision.models.vision_transformer import vit_b_16, vit_b_32, VisionTransformer, EncoderBlock, MLPBlock
 from functools import partial
 from torch import nn
+from typing import Callable
 import numpy as np
 from collections import OrderedDict
 from copy import deepcopy
@@ -31,7 +32,7 @@ class ParallelEncoder(nn.Module):
         for e, layers in enumerate(stage):
             encoder = OrderedDict()
             for l in range(layers):
-                encoder[f'encoder_{e}_{l}'] = EncoderBlock(
+                encoder[f'encoder_{e}_{l}'] = OwnEncoderBlock(
                     num_heads,
                     hidden_dims[e],
                     mlp_dim,
@@ -43,9 +44,11 @@ class ParallelEncoder(nn.Module):
         self.ln = nn.ModuleList([norm_layer(hd) for hd in hidden_dims])
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+
+
+    def forward(self, x, mask):
         for stream, encoder in enumerate(self.encoder_blocks):
-            x[stream] = self.ln[stream](encoder(self.dropout(x[stream])))
+            x[stream] = self.ln[stream](encoder((self.dropout(x[stream]), mask))[0])
 
         return x
 
@@ -153,13 +156,13 @@ class ViT(torch.nn.Module):
 
         super(ViT, self).__init__()
         image_size = img_size
-        self.patch_sizes = [16]
+        self.patch_sizes = [32]
         self.stages = ((12,),
                        )
 
         print(self.stages)
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
-
+        self.n_patch = seq_lens[0]
         base_size = 384 * 2
         self.reinforce = reinforce
         num_heads = 12
@@ -192,7 +195,7 @@ class ViT(torch.nn.Module):
 
         self.head = torch.nn.Linear(sum(self.hidden_dims), num_classes)
         if pretrained:
-            backbone = vit_b_16(pretrained=True)
+            backbone = vit_b_32(pretrained=True)
             print('Loading pretrained weights...')
             start = 0
             end = 0
@@ -260,14 +263,16 @@ class ViT(torch.nn.Module):
 
     def forward(self, x, permutation):
 
-
+        mask = None
         x, _ = self._process_input(x, self.patch_sizes[0], 0, permutation)
-
+        if permutation is not None:
+            mask = permutation == self.n_patch
+            mask = torch.cat([torch.zeros((mask.shape[0], 1), device=mask.device), mask], dim = 1)
         x = [x]
         for i in range(len(self.parallel_encoders)-1):
-            x = self.fusion_layers[i](self.parallel_encoders[i](x))
+            x = self.fusion_layers[i](self.parallel_encoders[i](x, mask))
 
-        x = self.parallel_encoders[-1](x)
+        x = self.parallel_encoders[-1](x, mask)
 
         x = torch.cat([stream[:, 0] for stream in x], dim=1)
 
@@ -277,3 +282,41 @@ class ViT(torch.nn.Module):
     def get_state(self, x, permutation):
         _, state = self._process_input(x, self.patch_sizes[0], 0, permutation)
         return state
+
+class OwnEncoderBlock(nn.Module):
+    """Transformer encoder block."""
+
+    def __init__(
+        self,
+        num_heads: int,
+        hidden_dim: int,
+        mlp_dim: int,
+        dropout: float,
+        attention_dropout: float,
+        norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
+    ):
+        super().__init__()
+        self.num_heads = num_heads
+
+        # Attention block
+        self.ln_1 = norm_layer(hidden_dim)
+        self.self_attention = nn.MultiheadAttention(hidden_dim, num_heads, dropout=attention_dropout, batch_first=True)
+        self.dropout = nn.Dropout(dropout)
+
+        # MLP block
+        self.ln_2 = norm_layer(hidden_dim)
+        self.mlp = MLPBlock(hidden_dim, mlp_dim, dropout)
+
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+
+        input, mask = input
+        torch._assert(input.dim() == 3, f"Expected (batch_size, seq_length, hidden_dim) got {input.shape}")
+        x = self.ln_1(input)
+        x, _ = self.self_attention(x, x, x, need_weights=False, key_padding_mask=mask)
+        x = self.dropout(x)
+        x = x + input
+
+        y = self.ln_2(x)
+        y = self.mlp(y)
+        return x + y, mask

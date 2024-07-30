@@ -41,7 +41,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     train_loader, test_loader = get_loader(img_size, batch_size)
     if reinforce:
         print("Reinforce")
-        agent = SimpleAgent(196)
+        agent = SimpleAgent(49)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
         agent_optimizer = optim.Adam(agent.parameters(), lr=1e-8)
@@ -126,8 +126,8 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             labels = labels.to(device)
             if agent is not None:
                 bs, _, _, _ = inputs.shape
-                start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
-                for i in range(196):
+                start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
+                for i in range(49):
                     state = model.module.get_state(inputs, start)
                     actions, values = agent(state)
 
@@ -146,8 +146,8 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     if agent is not None:
         test_input, _ = next(iter(loader))
         test_input = torch.unsqueeze(test_input[0], 0)
-        start = torch.full((1, 196), 196, dtype=torch.long, device=device)
-        for i in range(196):
+        start = torch.full((1, 49), 49, dtype=torch.long, device=device)
+        for i in range(49):
             state = model.module.get_state(test_input.to(device), start)
             actions, values = agent(state)
             action = torch.argmax(actions, dim=-1)
@@ -232,8 +232,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             bs, _, _, _ = inputs.shape
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                start = torch.full((bs, 196), 196, dtype=torch.long, device=device)
-                for i in range(196):
+                start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
+                for i in range(49):
                     state = model.module.get_state(inputs, start)
                     actions, values = agent(state)
 
@@ -304,14 +304,14 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
 def rl_training(agent, bs, exp_replay, inputs, labels, model):
     with torch.no_grad():
-        start = torch.full((bs, 196), 196, dtype=torch.long, device=labels.device)
+        start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
 
         old_state = None
-        for i in range(196):
+        for i in range(49):
 
             state = model.module.get_state(inputs, start).detach()
             if old_state is not None:
-                exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), list(state.to("cpu")), [0] * bs)
+                exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), list(state.to("cpu")), [-0.01] * bs)
 
             actions, values = agent(state)
 
@@ -341,8 +341,8 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = "saves/best_rl_no_pretrain.pth"
-    model = "Sequential"
+    base = None #"saves/best_rl_no_pretrain.pth"
+    model = "Little"
     pretrained = False
     verbose = True
     agent = None  #"saves/agent.pth"
