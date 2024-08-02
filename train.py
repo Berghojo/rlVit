@@ -74,14 +74,15 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
-            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                                  verbose=verbose)
 
             agent_loss, agent_acc, policy_loss, entropy_loss = train_rl(train_loader, device, model,
                                                                         agent_optimizer, scaler, agent,
                                                                         train_agent=True, verbose=verbose)
+
             loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
                                   verbose=verbose)
+
+
 
             summarize_agent(writer, "train_agent", epoch, policy_loss, entropy_loss)
             summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
@@ -261,8 +262,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     pos_reward = 1
                     neg_reward = 0
                     reward_batch = reward_batch.to(device)
-                    reward_batch[reward_batch >= 0] = pos_reward
-                    reward_batch[reward_batch < 0] = neg_reward
+                    reward_batch[reward_batch > 0] = pos_reward
+                    reward_batch[reward_batch <= 0] = neg_reward
+
                     cum_sum += torch.sum(reward_batch)
                     non_final_mask = next_state_batch == None
 
@@ -344,7 +346,7 @@ if __name__ == "__main__":
     num_classes = 10
     max_epochs = 300
     base = None #"saves/best_rl_no_pretrain.pth"
-    model = "Little"
+    model = "Little2"
     pretrained = False
     verbose = True
     agent = None  #"saves/agent.pth"
