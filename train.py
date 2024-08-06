@@ -119,7 +119,8 @@ def summarize_agent(writer, split, epoch, policy_loss, entropy_loss):
 
 def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     model.eval()
-    agent.eval()
+    if agent is not None:
+        agent.eval()
     correct = torch.zeros(n_classes)
     overall = torch.zeros(n_classes)
     with torch.no_grad():
@@ -279,9 +280,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             loss, entropy_loss, policy_loss = loss_func(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
 
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
     correct += torch.sum(preds == labels)
     n_items += inputs.size(0)
@@ -352,7 +353,7 @@ if __name__ == "__main__":
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 64
+    batch_size = 32
     use_simple_vit = False
-    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
+    train(model, num_classes, max_epochs, base, reinforce=False, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
