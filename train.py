@@ -298,7 +298,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         return running_loss, correct / n_items
 
 
-def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True):
+def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False):
     with torch.no_grad():
         start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
 
@@ -343,7 +343,7 @@ if __name__ == "__main__":
     num_classes = 10
     max_epochs = 300
     base = "saves/bestr.pth"
-    model = "Little_Test"
+    model = "Little_Test_2"
     pretrained = False
     verbose = True
     agent = None  #"saves/agent.pth"
