@@ -44,7 +44,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = SimpleAgent(49)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-8)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
         if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
     else:
@@ -74,13 +74,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
-
+            # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+            #                       verbose=verbose)
+            # summarize(writer, "train", epoch, acc, loss)
             agent_loss, agent_acc, entropy_loss, cum_reward = train_rl(train_loader, device, model,
                                                                         agent_optimizer, scaler, agent,
                                                                         train_agent=True, verbose=verbose)
 
-            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                                  verbose=verbose)
 
 
 
@@ -91,7 +91,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
-        summarize(writer, "train", epoch, acc, loss)
+            summarize(writer, "train", epoch, acc, loss)
         class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
         print('[Test] ACC: {:.4f} '.format(accuracy))
         print(f'[Test] CLASS ACC: {class_accuracy} @{epoch}')
@@ -205,6 +205,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
     if train_agent:
         exp_replay = ReplayMemory(10000)
+
         #criterion2 = torch.nn.CrossEntropyLoss(ignore_index=196, label_smoothing=0.7)
         loss_func = CustomLoss().to(device)
         model.eval()
@@ -222,17 +223,19 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
     counter = 0
     if train_agent:
+
         for inputs, labels in tqdm(loader, disable=not verbose):
             inputs = inputs.to(device)
             bs, _, _, _ = inputs.shape
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
             optimizer.zero_grad()
+
             rl_training(agent, bs, exp_replay, inputs, labels, model)
             cum_sum = 0
             batchsize = 64
-            if len(exp_replay) > batchsize:
 
+            if len(exp_replay) > batchsize:
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     state_batch, action_batch, reward_batch, next_state_batch = exp_replay.sample(batchsize)
                     state_batch = state_batch.to(device)
@@ -262,7 +265,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 scaler.update()
                 n_items += inputs.size(0)
                 running_loss += loss.item()
-                return running_loss, correct / n_items, entropy_loss, cum_sum
+        return running_loss, correct / n_items, entropy_loss, cum_sum
     else:
         for inputs, labels in tqdm(loader, disable=not verbose):
             inputs = inputs.to(device)
@@ -318,7 +321,8 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True)
             old_state = state
         if correct_only:
             outputs = model(inputs, start).detach()
-            rewards = (torch.argmax(outputs, dim=-1) == labels).to(torch.long)
+            rewards = (torch.argmax(outputs, dim=-1) == labels).long()
+
             exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
                             torch.full_like(old_state, float('nan'), device="cpu"), list(rewards.to("cpu")))
 
@@ -338,14 +342,14 @@ if __name__ == "__main__":
     set_deterministic()
     num_classes = 10
     max_epochs = 300
-    base = None #"saves/best_rl_no_pretrain.pth"
-    model = "Little2"
+    base = "saves/bestr.pth"
+    model = "Little_Test"
     pretrained = False
     verbose = True
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 128
+    batch_size = 32
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
