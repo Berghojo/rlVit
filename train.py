@@ -75,7 +75,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     for epoch in range(max_epochs):
         if reinforce:
 
-            agent_loss, agent_acc, policy_loss, entropy_loss = train_rl(train_loader, device, model,
+            agent_loss, agent_acc, entropy_loss, cum_reward = train_rl(train_loader, device, model,
                                                                         agent_optimizer, scaler, agent,
                                                                         train_agent=True, verbose=verbose)
 
@@ -84,7 +84,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
 
 
-            summarize_agent(writer, "train_agent", epoch, policy_loss, entropy_loss)
+            summarize_agent(writer, "train_agent", epoch, cum_reward, entropy_loss)
             summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
 
@@ -112,8 +112,8 @@ def summarize(writer, split, epoch, acc, loss=None):
         writer.add_scalar('Loss/' + split, loss, epoch)
 
 
-def summarize_agent(writer, split, epoch, policy_loss, entropy_loss):
-    writer.add_scalar('policy_loss/' + split, policy_loss, epoch)
+def summarize_agent(writer, split, epoch, cum_reward, entropy_loss):
+    writer.add_scalar('cum_reward/' + split, cum_reward, epoch)
     writer.add_scalar('entropy_loss/' + split, entropy_loss, epoch)
 
 
@@ -221,32 +221,14 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     running_loss = 0
 
     counter = 0
-    for inputs, labels in tqdm(loader, disable=not verbose):
-        inputs = inputs.to(device)
-        bs, _, _, _ = inputs.shape
-        labels = labels.type(torch.LongTensor)
-        labels = labels.to(device)
-
-        optimizer.zero_grad()
-
-        if train_agent:
-            preds, prob, probs = rl_training(agent, bs, exp_replay, inputs, labels, model)
-
-        else:
-
+    if train_agent:
+        for inputs, labels in tqdm(loader, disable=not verbose):
+            inputs = inputs.to(device)
             bs, _, _, _ = inputs.shape
-            with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
-                for i in range(49):
-                    state = model.module.get_state(inputs, start)
-                    actions, values = agent(state)
-
-                    action = torch.argmax(actions, dim=-1)
-                    start[:, i] = action
-                outputs = model(inputs, start)
-                probs, preds = torch.max(outputs, -1)
-            loss = criterion(outputs, labels)
-        if rl and train_agent:
+            labels = labels.type(torch.LongTensor)
+            labels = labels.to(device)
+            optimizer.zero_grad()
+            rl_training(agent, bs, exp_replay, inputs, labels, model)
             cum_sum = 0
             batchsize = 64
             if len(exp_replay) > batchsize:
@@ -261,53 +243,59 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     state_action_values = torch.exp(action).gather(1, action_batch.unsqueeze(-1))
                     gamma = 0.9
                     pos_reward = 1
-                    neg_reward = 0
+                    neg_reward = -0.01
                     reward_batch = reward_batch.to(device)
                     reward_batch[reward_batch > 0] = pos_reward
                     reward_batch[reward_batch <= 0] = neg_reward
-
                     cum_sum += torch.sum(reward_batch)
                     non_final_mask = next_state_batch == None
 
                     non_final_next_states = torch.stack([s for s in next_state_batch
                                                        if s is not None])
                     next_state_values = torch.zeros(batchsize, device=device)
-
-
                     with torch.no_grad():
                         next_state_values[non_final_mask] = agent(non_final_next_states)[1].squeeze()
                     expected_state_action_values = (next_state_values * gamma) + reward_batch
-
-            loss, entropy_loss, policy_loss = loss_func(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
-
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-    correct += torch.sum(preds == labels)
-    n_items += inputs.size(0)
-    if train_agent:
-        running_loss += loss.item()
+                loss, entropy_loss, policy_loss = loss_func(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                n_items += inputs.size(0)
+                running_loss += loss.item()
+                return running_loss, correct / n_items, entropy_loss, cum_sum
     else:
-        running_loss += loss.item() * inputs.size(0)
+        for inputs, labels in tqdm(loader, disable=not verbose):
+            inputs = inputs.to(device)
+            bs, _, _, _ = inputs.shape
+            labels = labels.type(torch.LongTensor)
+            labels = labels.to(device)
+            optimizer.zero_grad()
+            bs, _, _, _ = inputs.shape
+            with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
+                for i in range(49):
+                    state = model.module.get_state(inputs, start)
+                    actions, values = agent(state)
+                    action = torch.argmax(actions, dim=-1)
+                    start[:, i] = action
+                outputs = model(inputs, start)
+                probs, preds = torch.max(outputs, -1)
+            loss = criterion(outputs, labels)
+            correct += torch.sum(preds == labels)
+            n_items += inputs.size(0)
+            running_loss += loss.item() * inputs.size(0)
+
+            if counter % 1000 == 0:
+                print(torch.argmax(probs[0], dim=-1))
+                print(f'Reinforce_Loss {loss}')
+                acc = correct / n_items
+                print(acc)
+            counter += 1
+            del loss
+        return running_loss, correct / n_items
 
 
-    if counter % 1000 == 0:
-
-        print(torch.argmax(probs[0], dim=-1))
-        print(f'Reinforce_Loss {loss}')
-        acc = correct / n_items
-        print(acc)
-
-    counter += 1
-    del loss
-
-    if train_agent:
-        return running_loss, correct / n_items, entropy_loss, cum_sum
-    return running_loss, correct / n_items
-
-
-def rl_training(agent, bs, exp_replay, inputs, labels, model):
+def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True):
     with torch.no_grad():
         start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
 
@@ -316,7 +304,7 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model):
 
             state = model.module.get_state(inputs, start).detach()
             if old_state is not None:
-                exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), list(state.to("cpu")), [-0.01] * bs)
+                exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), list(state.to("cpu")), [0] * bs)
 
             actions, values = agent(state)
 
@@ -328,17 +316,21 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model):
             start[:, i] = action
 
             old_state = state
-        og_baseline = model(inputs, None).detach()
-        outputs = model(inputs, start).detach()
-        normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+        if correct_only:
+            outputs = model(inputs, start).detach()
+            rewards = (torch.argmax(outputs, dim=-1) == labels).to(torch.long)
+            exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
+                            torch.full_like(old_state, float('nan'), device="cpu"), list(rewards.to("cpu")))
 
-        baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+        else:
+            og_baseline = model(inputs, None).detach()
+            outputs = model(inputs, start).detach()
+            normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+            baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
 
-        rewards = (normal - baseline).flatten()
+            rewards = (normal - baseline).flatten()
 
-        probs, preds = torch.max(outputs, 1)
-        exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), torch.full_like(old_state, float('nan'), device="cpu"), list(rewards.to("cpu")))
-    return preds, prob, probs
+            exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), torch.full_like(old_state, float('nan'), device="cpu"), list(rewards.to("cpu")))
 
 
 if __name__ == "__main__":
@@ -353,7 +345,7 @@ if __name__ == "__main__":
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 64
+    batch_size = 32
     use_simple_vit = False
-    train(model, num_classes, max_epochs, base, reinforce=False, pretrained=pretrained,
+    train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
