@@ -231,7 +231,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             labels = labels.to(device)
             optimizer.zero_grad()
 
-            rl_training(agent, bs, exp_replay, inputs, labels, model)
+            preds, prob, probs = rl_training(agent, bs, exp_replay, inputs, labels, model)
             cum_sum = 0
             batchsize = 64
 
@@ -244,6 +244,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     next_state_batch = next_state_batch.to(device)
                     action, value = agent(state_batch)
                     state_action_values = torch.exp(action).gather(1, action_batch.unsqueeze(-1))
+
                     gamma = 0.9
                     pos_reward = 1
                     neg_reward = -0.01
@@ -265,6 +266,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 scaler.update()
                 n_items += inputs.size(0)
                 running_loss += loss.item()
+
+                correct += torch.sum(preds == labels)
         return running_loss, correct / n_items, entropy_loss, cum_sum
     else:
         for inputs, labels in tqdm(loader, disable=not verbose):
@@ -298,7 +301,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         return running_loss, correct / n_items
 
 
-def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False):
+def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True):
     with torch.no_grad():
         start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
 
@@ -335,7 +338,8 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False
             rewards = (normal - baseline).flatten()
 
             exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), torch.full_like(old_state, float('nan'), device="cpu"), list(rewards.to("cpu")))
-
+        probs, preds = torch.max(outputs, 1)
+        return preds, prob, probs
 
 if __name__ == "__main__":
     #os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
@@ -343,7 +347,7 @@ if __name__ == "__main__":
     num_classes = 10
     max_epochs = 300
     base = "saves/bestr.pth"
-    model = "Little_Test_2"
+    model = "Little_Test"
     pretrained = False
     verbose = True
     agent = None  #"saves/agent.pth"
