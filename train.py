@@ -44,7 +44,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = SimpleAgent(49)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=0.01)
         if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
     else:

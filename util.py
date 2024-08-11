@@ -74,8 +74,7 @@ class CustomLoss(nn.Module):
         self.entropy_factor = 0.01
 
     def forward(self, policy_per_action, values, rewards):
-        target_value = rewards
-        advantage = target_value - values.unsqueeze(1)
+        advantage = rewards - values.unsqueeze(1)
 
         #clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-5, 1 - 1e-5)
@@ -84,7 +83,7 @@ class CustomLoss(nn.Module):
         policy_loss = -torch.mean(torch.log(clipped_policy_per_action) * advantage.detach())
 
         # entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
-        #
+        
         # entropy_loss = -torch.mean(entropy)
         loss = policy_loss + self.value_factor * value_loss
         return loss, policy_loss, value_loss
