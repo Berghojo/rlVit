@@ -234,40 +234,40 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             preds, prob, probs = rl_training(agent, bs, exp_replay, inputs, labels, model)
             cum_sum = 0
             batchsize = 64
+            if len(exp_replay) > 5000:
+                while len(exp_replay) > batchsize:
+                    with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                        state_batch, action_batch, reward_batch, next_state_batch = exp_replay.sample(batchsize)
+                        state_batch = state_batch.to(device)
+                        action_batch = action_batch.to(device)
+                        reward_batch = reward_batch.to(device)
+                        next_state_batch = next_state_batch.to(device)
+                        action, value = agent(state_batch)
+                        state_action_values = torch.exp(action).gather(1, action_batch.unsqueeze(-1))
 
-            if len(exp_replay) > batchsize:
-                with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                    state_batch, action_batch, reward_batch, next_state_batch = exp_replay.sample(batchsize)
-                    state_batch = state_batch.to(device)
-                    action_batch = action_batch.to(device)
-                    reward_batch = reward_batch.to(device)
-                    next_state_batch = next_state_batch.to(device)
-                    action, value = agent(state_batch)
-                    state_action_values = torch.exp(action).gather(1, action_batch.unsqueeze(-1))
+                        gamma = 0.99
+                        pos_reward = 1
+                        neg_reward = 0
+                        reward_batch = reward_batch.to(device)
+                        reward_batch[reward_batch > 0] = pos_reward
+                        reward_batch[reward_batch <= 0] = neg_reward
+                        cum_sum += torch.sum(reward_batch)
+                        non_final_mask = next_state_batch == None
 
-                    gamma = 0.9
-                    pos_reward = 1
-                    neg_reward = -0.01
-                    reward_batch = reward_batch.to(device)
-                    reward_batch[reward_batch > 0] = pos_reward
-                    reward_batch[reward_batch <= 0] = neg_reward
-                    cum_sum += torch.sum(reward_batch)
-                    non_final_mask = next_state_batch == None
+                        non_final_next_states = torch.stack([s for s in next_state_batch
+                                                           if s is not None])
+                        next_state_values = torch.zeros(batchsize, device=device)
+                        with torch.no_grad():
+                            next_state_values[non_final_mask] = agent(non_final_next_states)[1].squeeze()
+                        expected_state_action_values = (next_state_values * gamma) + reward_batch
+                    loss, entropy_loss, policy_loss = loss_func(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                    n_items += inputs.size(0)
+                    running_loss += loss.item()
 
-                    non_final_next_states = torch.stack([s for s in next_state_batch
-                                                       if s is not None])
-                    next_state_values = torch.zeros(batchsize, device=device)
-                    with torch.no_grad():
-                        next_state_values[non_final_mask] = agent(non_final_next_states)[1].squeeze()
-                    expected_state_action_values = (next_state_values * gamma) + reward_batch
-                loss, entropy_loss, policy_loss = loss_func(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                n_items += inputs.size(0)
-                running_loss += loss.item()
-
-                correct += torch.sum(preds == labels)
+                    correct += torch.sum(preds == labels)
         return running_loss, correct / n_items, entropy_loss, cum_sum
     else:
         for inputs, labels in tqdm(loader, disable=not verbose):
@@ -353,7 +353,7 @@ if __name__ == "__main__":
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 2
+    batch_size = 32
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
