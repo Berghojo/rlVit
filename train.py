@@ -44,7 +44,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = SimpleAgent(49)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
-        agent_optimizer = optim.Adam(agent.parameters(), lr=0.01)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
         if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
     else:
@@ -247,7 +247,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                         gamma = 0.99
                         pos_reward = 1
-                        neg_reward = 0
+                        neg_reward = -0.01
                         reward_batch = reward_batch.to(device)
                         reward_batch[reward_batch > 0] = pos_reward
                         reward_batch[reward_batch <= 0] = neg_reward
