@@ -77,14 +77,14 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
             # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
             #                       verbose=verbose)
             # summarize(writer, "train", epoch, acc, loss)
-            agent_loss, agent_acc, entropy_loss, cum_reward = train_rl(train_loader, device, model,
+            agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                         agent_optimizer, scaler, agent,
                                                                         train_agent=True, verbose=verbose)
 
 
 
 
-            summarize_agent(writer, "train_agent", epoch, cum_reward, entropy_loss)
+            summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
             summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
 
@@ -112,9 +112,10 @@ def summarize(writer, split, epoch, acc, loss=None):
         writer.add_scalar('Loss/' + split, loss, epoch)
 
 
-def summarize_agent(writer, split, epoch, cum_reward, entropy_loss):
+def summarize_agent(writer, split, epoch, cum_reward, value_loss, policy_loss):
     writer.add_scalar('cum_reward/' + split, cum_reward, epoch)
-    writer.add_scalar('entropy_loss/' + split, entropy_loss, epoch)
+    writer.add_scalar('value_loss/' + split, value_loss, epoch)
+    writer.add_scalar('policy_loss/' + split, policy_loss, epoch)
 
 
 def eval_vit(model, device, loader, n_classes, agent, verbose=True):
@@ -223,16 +224,18 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
     counter = 0
     if train_agent:
-
+        cum_sum = 0
+        batch_count = 0
         for inputs, labels in tqdm(loader, disable=not verbose):
+            batch_count += 1
             inputs = inputs.to(device)
             bs, _, _, _ = inputs.shape
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
             optimizer.zero_grad()
 
-            preds, prob, probs = rl_training(agent, bs, exp_replay, inputs, labels, model)
-            cum_sum = 0
+            preds, prob, probs, rewards = rl_training(agent, bs, exp_replay, inputs, labels, model)
+            cum_sum += torch.sum(rewards)
             batchsize = 64
             if len(exp_replay) > 5000:
                 while len(exp_replay) > batchsize:
@@ -245,22 +248,23 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                         action, value = agent(state_batch)
                         state_action_values = torch.exp(action).gather(1, action_batch.unsqueeze(-1))
 
-                        gamma = 0.99
+                        gamma = 0.9
                         pos_reward = 1
                         neg_reward = -0.01
+
                         reward_batch = reward_batch.to(device)
+
                         reward_batch[reward_batch > 0] = pos_reward
                         reward_batch[reward_batch <= 0] = neg_reward
-                        cum_sum += torch.sum(reward_batch)
-                        non_final_mask = next_state_batch == None
 
+                        non_final_mask = [not torch.isnan(next_state_batch[i]).any() for i in range(batchsize)]
                         non_final_next_states = torch.stack([s for s in next_state_batch
-                                                           if s is not None])
-                        next_state_values = torch.zeros(batchsize, device=device)
+                                                           if not torch.isnan(s).any()])
+                        next_state_values = torch.zeros(batchsize, device=device).half()
                         with torch.no_grad():
                             next_state_values[non_final_mask] = agent(non_final_next_states)[1].squeeze()
                         expected_state_action_values = (next_state_values * gamma) + reward_batch
-                    loss, entropy_loss, policy_loss = loss_func(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
+                    loss, policy_loss, value_loss = loss_func(state_action_values, value.squeeze(), expected_state_action_values.unsqueeze(1))
                     scaler.scale(loss).backward()
                     scaler.step(optimizer)
                     scaler.update()
@@ -268,7 +272,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     running_loss += loss.item()
 
                     correct += torch.sum(preds == labels)
-        return running_loss, correct / n_items, entropy_loss, cum_sum
+        return running_loss, correct / n_items, policy_loss, value_loss, cum_sum / batch_count
     else:
         for inputs, labels in tqdm(loader, disable=not verbose):
             inputs = inputs.to(device)
@@ -322,9 +326,11 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True)
             start[:, i] = action
 
             old_state = state
+        outputs = model(inputs, start).detach()
+        probs, preds = torch.max(outputs, 1)
         if correct_only:
-            outputs = model(inputs, start).detach()
-            rewards = (torch.argmax(outputs, dim=-1) == labels).long()
+
+            rewards = (preds == labels).long()
 
             exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
                             torch.full_like(old_state, float('nan'), device="cpu"), list(rewards.to("cpu")))
@@ -338,8 +344,9 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True)
             rewards = (normal - baseline).flatten()
 
             exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), torch.full_like(old_state, float('nan'), device="cpu"), list(rewards.to("cpu")))
-        probs, preds = torch.max(outputs, 1)
-        return preds, prob, probs
+
+
+        return preds, prob, probs, rewards
 
 if __name__ == "__main__":
     #os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
@@ -353,7 +360,7 @@ if __name__ == "__main__":
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 128
+    batch_size = 32
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
