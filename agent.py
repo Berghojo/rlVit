@@ -3,6 +3,7 @@ from torchvision.models import resnet18
 import torch
 import random
 from collections import namedtuple, deque
+
 import numpy as np
 
 class Agent(nn.Module):
@@ -79,20 +80,27 @@ class SimpleAgent(nn.Module):
         super(SimpleAgent, self).__init__()
         self.n_actions = n_patches+1
         self.linear1 = nn.Linear(in_features=37632, out_features=128)
-        self.action= nn.Linear(in_features=128, out_features=self.n_actions)
-        self.value = nn.Linear(in_features=128, out_features=1)
+        self.action= nn.Linear(in_features=768, out_features=self.n_actions)
+        self.value = nn.Linear(in_features=768, out_features=1)
         self.softmax = nn.LogSoftmax(dim=-1)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=768, nhead=8, norm_first=True, batch_first=True)
+        self.decoder = nn.TransformerDecoder(decoder_layer, 3)
         self.relu = nn.ReLU()
     def freeze(self, freeze):
         print("Setting Agent Training to: ", freeze)
         for param in self.parameters():
             param.requires_grad = freeze
-    def forward(self, state):
-        state = state.flatten(1)
-        x = self.relu(self.linear1(state))
+
+    def forward(self, state, mask=None):
+        x = self.decoder(state, state, tgt_key_padding_mask=mask)
         actor = self.softmax(self.action(x))
         critic = self.value(x)
         return actor, critic
+        # state = state.flatten(1)
+        # x = self.relu(self.linear1(state))
+        # actor = self.softmax(self.action(x))
+        # critic = self.value(x)
+        # return actor, critic
 
 
 Transition = namedtuple('Transition',
@@ -132,4 +140,5 @@ class ReplayMemory(object):
         return s, a, r, ns
 
     def __len__(self):
+        assert len(self.states) == len(self.actions) and len(self.rewards) == len(self.states) and len(self.next_states) == len(self.states)
         return len(self.states)

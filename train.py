@@ -55,10 +55,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
-        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
-        # print('[Test] ACC: {:.4f} '.format(accuracy))
-        # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-        #summarize(writer, "test", -1, accuracy)
+        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
+        print('[Test] ACC: {:.4f} '.format(accuracy))
+        print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+
+        summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
             10, pretrained)
@@ -132,12 +133,14 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             if agent is not None:
                 bs, _, _, _ = inputs.shape
                 start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
+                start[:, 0] = 0
                 for i in range(49):
                     state = model.module.get_state(inputs, start)
-                    actions, values = agent(state)
+                    mask = start == 49
+                    actions, values = agent(state, mask)
 
                     action = torch.argmax(actions, dim=-1)
-                    start[:, i] = action
+                    start[:, i] = action[:, i]
 
                 outputs = model(inputs, start)
             else:
@@ -152,11 +155,13 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
         test_input, _ = next(iter(loader))
         test_input = torch.unsqueeze(test_input[0], 0)
         start = torch.full((1, 49), 49, dtype=torch.long, device=device)
+        start[:, 0] = 0
         for i in range(49):
             state = model.module.get_state(test_input.to(device), start)
-            actions, values = agent(state)
+            mask = start == 49
+            actions, values = agent(state, mask)
             action = torch.argmax(actions, dim=-1)
-            start[:, i] = action
+            start[:, i] = action[:, i]
         f = open("permutation.txt", "a")
 
         print(list(start), file=f)
@@ -307,33 +312,33 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
 def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True):
     with torch.no_grad():
-        start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
+        start = torch.arange(0, 49, device=labels.device)
+        #start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
+        start = start.repeat(bs, 1)
 
-        old_state = None
-        for i in range(49):
+        state = model.module.get_state(inputs, start).detach()
+        actions, _ = agent(state)
+        prob = torch.exp(actions)
+        dist = Categorical(prob)
+        action = dist.sample()
+        state = model.module.get_state(inputs, action).detach()
+        action = action[:, 1:]
+        state[:, -1, :] = float('nan')
+        action = torch.cat([torch.zeros((bs, 1), device=labels.device), action], dim=1).long()
 
-            state = model.module.get_state(inputs, start).detach()
-            if old_state is not None:
-                exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), list(state.to("cpu")), [0] * bs)
-
-            actions, values = agent(state)
-
-            prob = torch.exp(actions)
-
-            dist = Categorical(prob)
-            action = dist.sample()
-
-            start[:, i] = action
-
-            old_state = state
-        outputs = model(inputs, start).detach()
+        old_state = model.module.get_state(inputs, action).detach().flatten(0, 1)
+        state = state.flatten(0, 1)
+        #exp_replay.push(list(old_state.to("cpu")), list(action.flatten(1).to("cpu")), list(state.to("cpu")), [0] * bs)
+        rewards = torch.zeros((bs,49), device=labels.device)
+        outputs = model(inputs, action).detach()
         probs, preds = torch.max(outputs, 1)
+        action = action.flatten(0, 1)
         if correct_only:
-
-            rewards = (preds == labels).long()
-
+            reward = (preds == labels).long()
+            rewards[:, -1] = reward
+            rewards = rewards.flatten(0, 1)
             exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
-                            torch.full_like(old_state, float('nan'), device="cpu"), list(rewards.to("cpu")))
+                            list(state.to("cpu")), list(rewards.to("cpu")))
 
         else:
             og_baseline = model(inputs, None).detach()
@@ -341,11 +346,10 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True)
             normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
             baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
 
-            rewards = (normal - baseline).flatten()
-
-            exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")), torch.full_like(old_state, float('nan'), device="cpu"), list(rewards.to("cpu")))
-
-
+            reward = (normal - baseline).flatten(0, 1)
+            rewards[:, -1] = reward
+            exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
+                            list(state.to("cpu")), list(rewards.to("cpu")))
         return preds, prob, probs, rewards
 
 if __name__ == "__main__":
@@ -360,7 +364,7 @@ if __name__ == "__main__":
     agent = None  #"saves/agent.pth"
 
     size = 224
-    batch_size = 128
+    batch_size = 32
     use_simple_vit = False
     train(model, num_classes, max_epochs, base, reinforce=True, pretrained=pretrained,
           verbose=verbose, img_size=size, base_vit=use_simple_vit, batch_size=batch_size)
