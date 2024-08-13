@@ -79,9 +79,9 @@ class SimpleAgent(nn.Module):
     def __init__(self, n_patches):
         super(SimpleAgent, self).__init__()
         self.n_actions = n_patches+1
-        self.linear1 = nn.Linear(in_features=37632, out_features=128)
-        self.action= nn.Linear(in_features=768, out_features=self.n_actions)
-        self.value = nn.Linear(in_features=768, out_features=1)
+        self.linear1 = nn.Linear(in_features=768, out_features=128)
+        self.action= nn.Linear(in_features=128, out_features=self.n_actions)
+        self.value = nn.Linear(in_features=128, out_features=1)
         self.softmax = nn.LogSoftmax(dim=-1)
         decoder_layer = nn.TransformerDecoderLayer(d_model=768, nhead=8, norm_first=True, batch_first=True)
         self.decoder = nn.TransformerDecoder(decoder_layer, 3)
@@ -93,6 +93,7 @@ class SimpleAgent(nn.Module):
 
     def forward(self, state, mask=None):
         x = self.decoder(state, state, tgt_key_padding_mask=mask)
+        x = self.relu(self.linear1(x))
         actor = self.softmax(self.action(x))
         critic = self.value(x)
         return actor, critic
@@ -127,7 +128,7 @@ class ReplayMemory(object):
 
         s = torch.stack(list(self.states))[sample]
         a = torch.stack(list(self.actions))[sample]
-        r = torch.tensor(list(self.rewards))[sample]
+        r = torch.stack(list(self.rewards))[sample]
         ns = torch.stack(list(self.next_states))[sample]
         sample.sort(reverse=True)
 
