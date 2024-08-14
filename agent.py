@@ -84,15 +84,17 @@ class SimpleAgent(nn.Module):
         self.value = nn.Linear(in_features=128, out_features=1)
         self.softmax = nn.LogSoftmax(dim=-1)
         decoder_layer = nn.TransformerDecoderLayer(d_model=768, nhead=8, norm_first=True, batch_first=True)
-        self.decoder = nn.TransformerDecoder(decoder_layer, 3)
+        self.decoder = nn.TransformerDecoder(decoder_layer, 6)
         self.relu = nn.ReLU()
     def freeze(self, freeze):
         print("Setting Agent Training to: ", freeze)
         for param in self.parameters():
             param.requires_grad = freeze
 
-    def forward(self, state, mask=None):
-        x = self.decoder(state, state, tgt_key_padding_mask=mask)
+    def forward(self, state, memory=None, mask=None):
+        if memory is None:
+            memory = state
+        x = self.decoder(state, memory, tgt_key_padding_mask=mask)
         x = self.relu(self.linear1(x))
         actor = self.softmax(self.action(x))
         critic = self.value(x)

@@ -44,7 +44,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = SimpleAgent(49)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-3)
         if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
     else:
@@ -75,21 +75,18 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
-            # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-            #                       verbose=verbose)
-            # summarize(writer, "train", epoch, acc, loss)
+
             agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                         agent_optimizer, scaler, agent,
                                                                         train_agent=True, verbose=verbose)
 
 
-
-
             summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
             summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
-
-
+            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+                                  verbose=verbose)
+            summarize(writer, "train", epoch, acc, loss)
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
             summarize(writer, "train", epoch, acc, loss)
@@ -134,10 +131,13 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
                 bs, _, _, _ = inputs.shape
                 start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
                 start[:, 0] = 0
+                initial = torch.arange(0, 49, device=labels.device)
+                initial = initial.repeat(bs, 1)
+                image = model.module.get_state(input.to(device), initial)
                 for i in range(48):
                     state = model.module.get_state(inputs, start)
                     mask = start == 49
-                    actions, values = agent(state, mask)
+                    actions, values = agent(state, image, mask)
 
                     action = torch.argmax(actions, dim=-1)
                     start[:, i+1] = action[:, i]
@@ -155,11 +155,14 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
         test_input, _ = next(iter(loader))
         test_input = torch.unsqueeze(test_input[0], 0)
         start = torch.full((1, 49), 49, dtype=torch.long, device=device)
+        initial = torch.arange(0, 49, device=labels.device)
+        initial = initial.repeat(bs, 1)
+        image = model.module.get_state(test_input.to(device), initial)
         start[:, 0] = 0
         for i in range(48):
             state = model.module.get_state(test_input.to(device), start)
             mask = start == 49
-            actions, values = agent(state, mask)
+            actions, values = agent(state, image, mask)
             action = torch.argmax(actions, dim=-1)
             start[:, i+1] = action[:, i]
         f = open("permutation.txt", "a")
@@ -292,10 +295,15 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             optimizer.zero_grad()
             bs, _, _, _ = inputs.shape
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
+                start = torch.full((1, 49), 49, dtype=torch.long, device=device)
+                initial = torch.arange(0, 49, device=labels.device)
+                initial = initial.repeat(bs, 1)
+                image = model.module.get_state(inputs.to(device), initial)
+                start[:, 0] = 0
                 for i in range(48):
+                    mask = start == 49
                     state = model.module.get_state(inputs, start)
-                    actions, values = agent(state)
+                    actions, values = agent(state, image, mask)
                     action = torch.argmax(actions, dim=-1)
                     start[:, i+1] = action[:, i]
                 outputs = model(inputs, start)
