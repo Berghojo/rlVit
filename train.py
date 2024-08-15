@@ -46,7 +46,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = SimpleAgent(49)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-3)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
         if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
     else:
@@ -57,7 +57,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
-        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
+        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None, verbose=verbose)
         print('[Test] ACC: {:.4f} '.format(accuracy))
         print(f'[Test] CLASS ACC: {class_accuracy} @-1')
 
