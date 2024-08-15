@@ -57,11 +57,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
-        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
-        # print('[Test] ACC: {:.4f} '.format(accuracy))
-        # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
+        print('[Test] ACC: {:.4f} '.format(accuracy))
+        print(f'[Test] CLASS ACC: {class_accuracy} @-1')
 
-        #summarize(writer, "test", -1, accuracy)
+        summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
             10, pretrained)
@@ -88,14 +88,15 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                          train_agent=True, verbose=verbose, pretrain=True)
 
             else:
+                loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+                                      verbose=verbose)
+
+                summarize(writer, "train", epoch, acc, loss)
                 agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
                                                                                       pretrain=False)
-                # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                #                       verbose=verbose)
 
-                #summarize(writer, "train", epoch, acc, loss)
 
                 summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
@@ -105,7 +106,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
             summarize(writer, "train", epoch, acc, loss)
-        if epoch > start_logging:
+        if epoch >= start_logging:
             class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
             print('[Test] ACC: {:.4f} '.format(accuracy))
             print(f'[Test] CLASS ACC: {class_accuracy} @{epoch}')
@@ -232,8 +233,8 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
     return running_loss, correct / n_items
 
 
-def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, pretrain=True):
-    criterion = torch.nn.CrossEntropyLoss(reduction="None")
+def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, pretrain=False):
+    criterion = torch.nn.CrossEntropyLoss(reduction="none")
 
     if train_agent:
         exp_replay = ReplayMemory(10000)
@@ -273,6 +274,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 actions, _ = agent(state)
             pseudo_labels = torch.arange(1, 50, device=device)
             pseudo_labels = pseudo_labels.repeat(bs, 1)
+
             loss = criterion(actions.flatten(0, 1), pseudo_labels.flatten(0, 1))
             loss = torch.mean(loss)
             scaler.scale(loss).backward()
@@ -280,6 +282,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             scaler.update()
 
             running_loss += loss.item() * inputs.size(0)
+
             with torch.no_grad():
                 outputs = model(inputs, start)
             probs, preds = torch.max(outputs, -1)
@@ -380,6 +383,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             correct += torch.sum(preds == labels)
             n_items += inputs.size(0)
             running_loss += loss.item() * inputs.size(0)
+
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()

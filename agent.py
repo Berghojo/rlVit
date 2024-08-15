@@ -80,8 +80,8 @@ class SimpleAgent(nn.Module):
         super(SimpleAgent, self).__init__()
         self.n_actions = n_patches+1
         self.linear1 = nn.Linear(in_features=768, out_features=128)
-        self.action= nn.Linear(in_features=128, out_features=self.n_actions)
-        self.value = nn.Linear(in_features=128, out_features=1)
+        self.action= nn.Linear(in_features=768, out_features=self.n_actions)
+        self.value = nn.Linear(in_features=768, out_features=1)
         self.softmax = nn.LogSoftmax(dim=-1)
         decoder_layer = nn.TransformerDecoderLayer(d_model=768, nhead=8, norm_first=True, batch_first=True)
         self.decoder = nn.TransformerDecoder(decoder_layer, 6)
@@ -96,7 +96,7 @@ class SimpleAgent(nn.Module):
         if memory is None:
             memory = state
         x = self.decoder(state, memory, tgt_key_padding_mask=mask)
-        x = self.relu(self.linear1(x))
+        #x = self.relu(self.linear1(x))
         actor = self.action(x)
         critic = self.value(x)
         return actor, critic
