@@ -20,7 +20,9 @@ if __name__ == "__main__":
     parser.add_argument("--use_rl", type=bool, help="use rl mode", default=True)
     parser.add_argument("--use_baseline", type=bool, help="use baseline for rewards", default=False)
     parser.add_argument("--alternate", type=bool, help="alternate model and agent training", default=False)
+    parser.add_argument("--use_basline", type=bool, help="alternate model and agent training", default=False)
     args = parser.parse_args()
     print(args)
     train(args.run_name, args.nclasses, args.nepochs, args.base_path, reinforce=args.use_rl,
-          verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,warmup=args.warmup)
+          verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,
+          warmup=args.warmup, use_baseline=args.use_baseline)

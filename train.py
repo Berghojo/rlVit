@@ -28,7 +28,7 @@ def set_deterministic(seed=2408):
 
 
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
-          verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10):
+          verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False):
     #torch.autograd.set_detect_anomaly(True)
 
     if not os.path.exists("./saves"):
@@ -85,7 +85,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
                 train_rl(train_loader, device, model,
                          agent_optimizer, scaler, agent,
-                         train_agent=True, verbose=verbose, pretrain=True)
+                         train_agent=True, verbose=verbose, pretrain=True, use_baseline=use_baseline)
 
             else:
                 # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
@@ -95,7 +95,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                 agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
-                                                                                      pretrain=False)
+                                                                                      pretrain=False, use_baseline=use_baseline)
 
 
                 summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
@@ -149,7 +149,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
                 bs, _, _, _ = inputs.shape
                 start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
                 start[:, 0] = 0
-                initial = torch.arange(0, 49, device=labels.device)
+                initial = torch.arange(0, 49, device=device)
                 initial = initial.repeat(bs, 1)
                 image = model.module.get_state(inputs.to(device), initial)
                 for i in range(48):
@@ -233,7 +233,7 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
     return running_loss, correct / n_items
 
 
-def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, pretrain=False):
+def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, pretrain=False, use_baseline=False):
     criterion = torch.nn.CrossEntropyLoss(reduction="none")
 
     if train_agent:
@@ -303,7 +303,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             labels = labels.to(device)
             optimizer.zero_grad()
 
-            preds, prob, probs, rewards = rl_training(agent, bs, exp_replay, inputs, labels, model)
+            preds, prob, probs, rewards = rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only = not use_baseline)
             cum_sum += torch.sum(rewards)
             batchsize = 32
             if len(exp_replay) > 100:
@@ -397,7 +397,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         return running_loss, correct / n_items
 
 
-def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True):
+def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False):
     with torch.no_grad():
         start = torch.arange(0, 49, device=labels.device)
         #start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
