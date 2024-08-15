@@ -27,13 +27,15 @@ def set_deterministic(seed=2408):
         "CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
 
 
-def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None,
-          verbose=True, img_size=224, base_vit=False, batch_size=32):
+def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
+          verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10):
     #torch.autograd.set_detect_anomaly(True)
 
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    start_logging = logging
+    pretraining_duration = warmup
     torch.cuda.empty_cache()
     gc.collect()
     launch_time = time.strftime("%Y_%m_%d-%H_%M")
@@ -58,8 +60,8 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-        #
-        # summarize(writer, "test", -1, accuracy)
+
+        #summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
             10, pretrained)
@@ -75,33 +77,47 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
+            if epoch == pretraining_duration:
+                for g in agent_optimizer.param_groups:
+                    g['lr'] = 1e-8
 
-            agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
-                                                                        agent_optimizer, scaler, agent,
-                                                                        train_agent=True, verbose=verbose)
+            if epoch < pretraining_duration:
+
+                train_rl(train_loader, device, model,
+                         agent_optimizer, scaler, agent,
+                         train_agent=True, verbose=verbose, pretrain=True)
+
+            else:
+                agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
+                                                                                      agent_optimizer, scaler, agent,
+                                                                                      train_agent=True, verbose=verbose,
+                                                                                      pretrain=False)
+                # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+                #                       verbose=verbose)
+
+                #summarize(writer, "train", epoch, acc, loss)
+
+                summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
+                summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
 
-            summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
-            summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
-
-            loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                                  verbose=verbose)
-            summarize(writer, "train", epoch, acc, loss)
+            #summarize(writer, "train", epoch, acc, loss)
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
             summarize(writer, "train", epoch, acc, loss)
-        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
-        print('[Test] ACC: {:.4f} '.format(accuracy))
-        print(f'[Test] CLASS ACC: {class_accuracy} @{epoch}')
-        summarize(writer, "test", epoch, accuracy)
-        if accuracy > best_acc:
-            best_acc = accuracy
+        if epoch > start_logging:
+            class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
+            print('[Test] ACC: {:.4f} '.format(accuracy))
+            print(f'[Test] CLASS ACC: {class_accuracy} @{epoch}')
+            summarize(writer, "test", epoch, accuracy)
+            if accuracy > best_acc:
+                best_acc = accuracy
 
-            torch.save(model.state_dict(), f"saves/best_{model_name}_@{launch_time}.pth")
-            if agent is not None:
-                torch.save(agent.state_dict(), f"saves/best_{model_name}_agent_@{launch_time}.pth")
+                torch.save(model.state_dict(), f"saves/best_{model_name}_@{launch_time}.pth")
+                if agent is not None:
+                    torch.save(agent.state_dict(), f"saves/best_{model_name}_agent_@{launch_time}.pth")
 
-        scheduler.step()
+            scheduler.step()
 
 
 def summarize(writer, split, epoch, acc, loss=None):
@@ -124,6 +140,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     overall = torch.zeros(n_classes)
     with torch.no_grad():
         for inputs, labels in tqdm(loader, disable=not verbose):
+
             inputs = inputs.to(device)
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
@@ -133,13 +150,14 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
                 start[:, 0] = 0
                 initial = torch.arange(0, 49, device=labels.device)
                 initial = initial.repeat(bs, 1)
-                image = model.module.get_state(input.to(device), initial)
+                image = model.module.get_state(inputs.to(device), initial)
                 for i in range(48):
                     state = model.module.get_state(inputs, start)
                     mask = start == 49
                     actions, values = agent(state, image, mask)
+                    actions = torch.softmax(actions, dim=-1)
+                    vals, action = torch.max(actions, dim=-1)
 
-                    action = torch.argmax(actions, dim=-1)
                     start[:, i+1] = action[:, i]
 
                 outputs = model(inputs, start)
@@ -155,16 +173,21 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
         test_input, _ = next(iter(loader))
         test_input = torch.unsqueeze(test_input[0], 0)
         start = torch.full((1, 49), 49, dtype=torch.long, device=device)
+        probs = torch.full((1, 49), 0, dtype=torch.long, device=device)
         initial = torch.arange(0, 49, device=labels.device)
-        initial = initial.repeat(bs, 1)
-        image = model.module.get_state(test_input.to(device), initial)
+        initial = initial.repeat(1, 1)
+        image = model.module.get_state(test_input.to(device), initial.to(device))
+
         start[:, 0] = 0
         for i in range(48):
             state = model.module.get_state(test_input.to(device), start)
+
             mask = start == 49
             actions, values = agent(state, image, mask)
-            action = torch.argmax(actions, dim=-1)
+
+            vals, action = torch.max(actions, dim=-1)
             start[:, i+1] = action[:, i]
+            probs[:, i+1] = vals[:, i]
         f = open("permutation.txt", "a")
 
         print(list(start), file=f)
@@ -209,8 +232,8 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
     return running_loss, correct / n_items
 
 
-def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, rl=True):
-    criterion = torch.nn.CrossEntropyLoss()
+def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, pretrain=True):
+    criterion = torch.nn.CrossEntropyLoss(reduction="None")
 
     if train_agent:
         exp_replay = ReplayMemory(10000)
@@ -232,11 +255,43 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
 
     counter = 0
+    if pretrain:
+
+        criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.7, reduction="none")
+        batch_count = 0
+        for inputs, labels in tqdm(loader, disable=not verbose):
+            batch_count += 1
+            inputs = inputs.to(device)
+            labels = labels.type(torch.LongTensor)
+            labels = labels.to(device)
+            bs, _, _, _ = inputs.shape
+            optimizer.zero_grad()
+            start = torch.arange(0, 49, device=device)
+            start = start.repeat(bs, 1)
+            with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                state = model.module.get_state(inputs, start).detach()
+                actions, _ = agent(state)
+            pseudo_labels = torch.arange(1, 50, device=device)
+            pseudo_labels = pseudo_labels.repeat(bs, 1)
+            loss = criterion(actions.flatten(0, 1), pseudo_labels.flatten(0, 1))
+            loss = torch.mean(loss)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
+            running_loss += loss.item() * inputs.size(0)
+            with torch.no_grad():
+                outputs = model(inputs, start)
+            probs, preds = torch.max(outputs, -1)
+            correct += torch.sum(preds == labels)
+            n_items += inputs.size(0)
+        print("running_loss: ", running_loss)
+        return running_loss, correct / n_items
     if train_agent:
+        batch_count = 0
         cum_sum = 0
         p_loss = 0
         v_loss = 0
-        batch_count = 0
         for inputs, labels in tqdm(loader, disable=not verbose):
             batch_count += 1
             inputs = inputs.to(device)
@@ -261,7 +316,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                         next_state_batch = next_state_batch.to(device)
 
                         action, value = agent(state_batch)
-                        state_action_values = torch.exp(action).gather(2, action_batch.unsqueeze(-1))
+                        action = torch.softmax(action, dim=-1)
+                        state_action_values = torch.softmax(action, dim=-1).gather(2, action_batch.unsqueeze(-1))
 
                         gamma = 0.9
                         pos_reward = 1
@@ -285,6 +341,13 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     p_loss += policy_loss.item()
                     v_loss += value_loss.item()
                     correct += torch.sum(preds == labels)
+                    if counter % 1000 == 0:
+                        print(torch.argmax(probs[0], dim=-1))
+                        print(f'Reinforce_Loss {loss}')
+                        acc = correct / n_items
+                        print(acc)
+                    counter += 1
+
         return running_loss, correct / n_items, p_loss, v_loss, cum_sum / batch_count
     else:
         for inputs, labels in tqdm(loader, disable=not verbose):
@@ -295,27 +358,34 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             optimizer.zero_grad()
             bs, _, _, _ = inputs.shape
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                start = torch.full((1, 49), 49, dtype=torch.long, device=device)
+                start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
                 initial = torch.arange(0, 49, device=labels.device)
                 initial = initial.repeat(bs, 1)
                 image = model.module.get_state(inputs.to(device), initial)
                 start[:, 0] = 0
                 for i in range(48):
                     mask = start == 49
+
                     state = model.module.get_state(inputs, start)
+
                     actions, values = agent(state, image, mask)
+                    actions = torch.softmax(actions, dim=-1)
                     action = torch.argmax(actions, dim=-1)
                     start[:, i+1] = action[:, i]
                 outputs = model(inputs, start)
                 probs, preds = torch.max(outputs, -1)
+
             loss = criterion(outputs, labels)
+            loss = torch.mean(loss)
             correct += torch.sum(preds == labels)
             n_items += inputs.size(0)
             running_loss += loss.item() * inputs.size(0)
-
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
             if counter % 1000 == 0:
-                print(torch.argmax(probs[0], dim=-1))
-                print(f'Reinforce_Loss {loss}')
+                print(torch.max(probs[0], dim=-1))
+                print(f'Loss {loss}')
                 acc = correct / n_items
                 print(acc)
             counter += 1
@@ -330,7 +400,7 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=True)
         start = start.repeat(bs, 1)
         state = model.module.get_state(inputs, start).detach()
         actions, _ = agent(state)
-        prob = torch.exp(actions)
+        prob = torch.softmax(actions, dim=-1)
         dist = Categorical(prob)
         action = dist.sample()
         state = model.module.get_state(inputs, action).detach()
