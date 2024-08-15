@@ -88,10 +88,10 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                          train_agent=True, verbose=verbose, pretrain=True)
 
             else:
-                loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                                      verbose=verbose)
-
-                summarize(writer, "train", epoch, acc, loss)
+                # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
+                #                       verbose=verbose)
+                #
+                # summarize(writer, "train", epoch, acc, loss)
                 agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
