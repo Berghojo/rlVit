@@ -18,9 +18,9 @@ if __name__ == "__main__":
     parser.add_argument("--warmup", type=int, help="number of warmup", default=10)
     parser.add_argument("--verbose", type=bool, help="use verbose mode", default=True)
     parser.add_argument("--use_rl", type=bool, help="use rl mode", default=True)
-    parser.add_argument("--use_baseline", type=bool, help="use baseline for rewards", default=False)
+    parser.add_argument("--use_baseline", type=bool, help="use baseline for rewards", default=True)
     parser.add_argument("--alternate", type=bool, help="alternate model and agent training", default=False)
-    parser.add_argument("--use_baseline", type=bool, help="alternate model and agent training", default=True)
+
     args = parser.parse_args()
     print(args)
     train(args.run_name, args.nclasses, args.nepochs, args.base_path, reinforce=args.use_rl,
