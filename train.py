@@ -226,7 +226,7 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
         n_items += inputs.size(0)
         running_loss += loss.item() * inputs.size(0)
         del outputs
-        if counter % 1000 == 999:
+        if counter % 100 == 99:
             print(correct / n_items)
         counter += 1
 
@@ -344,7 +344,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     p_loss += policy_loss.item()
                     v_loss += value_loss.item()
                     correct += torch.sum(preds == labels)
-                    if counter % 1000 == 0:
+                    if counter % 100 == 99:
                         print(torch.argmax(probs[0], dim=-1))
                         print(f'Reinforce_Loss {loss}')
                         acc = correct / n_items
@@ -387,7 +387,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            if counter % 1000 == 0:
+            if counter % 100 == 99:
                 print(torch.max(probs[0], dim=-1))
                 print(f'Loss {loss}')
                 acc = correct / n_items
@@ -432,7 +432,8 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False
             baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
 
             reward = (normal - baseline)
-            rewards[:, -1] = reward
+            reward[reward == 0] = 0.001 #Equality to baseline should be rewarded
+            rewards[:, -1] = reward.squeeze()
             exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
                             list(state.to("cpu")), list(rewards.to("cpu")))
         return preds, prob, probs, rewards
