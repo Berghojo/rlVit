@@ -57,11 +57,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
-        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None, verbose=verbose)
-        print('[Test] ACC: {:.4f} '.format(accuracy))
-        print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-
-        summarize(writer, "test", -1, accuracy)
+        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None, verbose=verbose)
+        # print('[Test] ACC: {:.4f} '.format(accuracy))
+        # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+        #
+        # summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
             10, pretrained)
@@ -426,10 +426,13 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False
                             list(state.to("cpu")), list(rewards.to("cpu")))
 
         else:
+
             og_baseline = model(inputs, None).detach()
-            outputs = model(inputs, start).detach()
-            normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
             baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+
+            outputs = model(inputs, action).detach()
+            normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+
 
             reward = (normal - baseline)
             reward[reward == 0] = 0.001 #Equality to baseline should be rewarded
