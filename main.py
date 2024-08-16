@@ -25,4 +25,4 @@ if __name__ == "__main__":
     print(args)
     train(args.run_name, args.nclasses, args.nepochs, args.base_path, reinforce=args.use_rl,
           verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,
-          warmup=args.warmup, use_baseline=args.use_baseline)
+          warmup=args.warmup, use_baseline=args.use_baseline, logging=args.logging)
