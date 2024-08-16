@@ -426,17 +426,20 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False
                             list(state.to("cpu")), list(rewards.to("cpu")))
 
         else:
-
             og_baseline = model(inputs, None).detach()
             baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+            for i in range(49):
 
-            outputs = model(inputs, action).detach()
-            normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+                mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
+                sub_action = action.clone()
+                sub_action[mask] = 49
+                outputs = model(inputs, action).detach()
+                normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
 
 
-            reward = (normal - baseline)
-            reward[reward == 0] = 0.001 #Equality to baseline should be rewarded
-            rewards[:, -1] = reward.squeeze()
+                reward = (normal - baseline)
+                reward[reward == 0] = 0.001 #Equality to baseline should be rewarded
+                rewards[:, i] = reward.squeeze()
             exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
                             list(state.to("cpu")), list(rewards.to("cpu")))
         return preds, prob, probs, rewards
