@@ -46,7 +46,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = SimpleAgent(49)
         agent = torch.nn.DataParallel(agent)
         agent = agent.to(device)
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-5)
         if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
     else:
@@ -134,6 +134,7 @@ def summarize_agent(writer, split, epoch, cum_reward, value_loss, policy_loss):
 
 
 def eval_vit(model, device, loader, n_classes, agent, verbose=True):
+    PAD = 49
     model.eval()
     if agent is not None:
         agent.eval()
@@ -160,7 +161,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
                     vals, action = torch.max(actions, dim=-1)
 
                     start[:, i+1] = action[:, i]
-
+                start = start.mul(start.ne(PAD).long())
                 outputs = model(inputs, start)
             else:
                 outputs = model(inputs, None)
@@ -189,6 +190,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             vals, action = torch.max(actions, dim=-1)
             start[:, i+1] = action[:, i]
             probs[:, i+1] = vals[:, i]
+        start = start.mul(start.ne(PAD).long())
         f = open("permutation.txt", "a")
 
         print(list(start), file=f)
@@ -320,6 +322,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                         action, value = agent(state_batch)
                         action = torch.softmax(action, dim=-1)
+                        action = action.mul(action.ne(49).long())
                         state_action_values = torch.softmax(action, dim=-1).gather(2, action_batch.unsqueeze(-1))
 
                         gamma = 0.9
@@ -375,6 +378,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     actions = torch.softmax(actions, dim=-1)
                     action = torch.argmax(actions, dim=-1)
                     start[:, i+1] = action[:, i]
+                start = start.mul(start.ne(49).float())
                 outputs = model(inputs, start)
                 probs, preds = torch.max(outputs, -1)
 
@@ -398,6 +402,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
 
 def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False):
+    PAD = 49
     with torch.no_grad():
         start = torch.arange(0, 49, device=labels.device)
         #start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
@@ -411,29 +416,41 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False
         action = action[:, 1:]
         state[:, -1, :] = float('nan')
         action = torch.cat([torch.zeros((bs, 1), device=labels.device), action], dim=1).long()
+        action = action.mul(action.ne(PAD).long())
 
         old_state = model.module.get_state(inputs, action).detach()
 
         #exp_replay.push(list(old_state.to("cpu")), list(action.flatten(1).to("cpu")), list(state.to("cpu")), [0] * bs)
         rewards = torch.zeros((bs,49), device=labels.device)
-        outputs = model(inputs, action).detach()
-        probs, preds = torch.max(outputs, 1)
 
         if correct_only:
-            reward = (preds == labels).long()
-            rewards[:, -1] = reward
+            for i in range(49):
+
+                mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
+                sub_action = action.clone()
+                sub_action[mask] = 49
+                outputs = model(inputs, sub_action).detach()
+                probs, preds = torch.max(outputs, 1)
+
+                reward = (preds == labels).long()
+
+                reward[reward == 0] = 0.001 #Equality to baseline should be rewarded
+                rewards[:, i] = reward.squeeze()
             exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
                             list(state.to("cpu")), list(rewards.to("cpu")))
 
         else:
             og_baseline = model(inputs, None).detach()
             baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+
             for i in range(49):
 
                 mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
+
                 sub_action = action.clone()
                 sub_action[mask] = 49
-                outputs = model(inputs, action).detach()
+                outputs = model(inputs, sub_action).detach()
+                probs, preds = torch.max(outputs, 1)
                 normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
 
 
