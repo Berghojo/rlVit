@@ -434,7 +434,6 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False
 
                 reward = (preds == labels).long()
 
-                reward[reward == 0] = 0.001 #Equality to baseline should be rewarded
                 rewards[:, i] = reward.squeeze()
             exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
                             list(state.to("cpu")), list(rewards.to("cpu")))
