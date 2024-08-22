@@ -98,13 +98,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
                 summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
-
                 if alternate:
                     loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
                                           train_agent=False,
                                           verbose=verbose)
 
                     summarize(writer, "train", epoch, acc, loss)
+
 
             #summarize(writer, "train", epoch, acc, loss)
         else:
@@ -378,7 +378,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     actions = torch.softmax(actions, dim=-1)
                     action = torch.argmax(actions, dim=-1)
                     start[:, i+1] = action[:, i]
-                start = start.mul(start.ne(49).float())
+                start = start.mul(start.ne(49).long())
                 outputs = model(inputs, start)
                 probs, preds = torch.max(outputs, -1)
 
@@ -427,20 +427,22 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
 
         #exp_replay.push(list(old_state.to("cpu")), list(action.flatten(1).to("cpu")), list(state.to("cpu")), [0] * bs)
         rewards = torch.zeros((bs,49), device=labels.device)
-        outputs = model(inputs, action).detach()
-        probs, preds = torch.max(outputs, 1)
+        # outputs = model(inputs, action).detach()
+        # probs, preds = torch.max(outputs, 1)
         if correct_only:
-            for i in range(49):
+            #for i in range(49):
 
-                mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
-                sub_action = action.clone()
-                sub_action[mask] = 49
-                outputs = model(inputs, sub_action)
-                probs, preds = torch.max(outputs, 1)
+            #mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
+            #sub_action = action.clone()
+            #sub_action[mask] = 49
+            outputs = model(inputs, action)
 
-                reward = (preds == labels).long()
 
-                rewards[:, i] = reward.squeeze()
+            probs, preds = torch.max(outputs, 1)
+
+            reward = (preds == labels).long()
+
+            rewards[:, -1] = reward.squeeze()
             # exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
             #                 list(state.to("cpu")), list(rewards.to("cpu")))
 
