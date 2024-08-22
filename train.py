@@ -28,9 +28,9 @@ def set_deterministic(seed=2408):
 
 
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
-          verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False):
+          verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False, alternate=True):
     #torch.autograd.set_detect_anomaly(True)
-
+    set_deterministic()
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,6 +57,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(torch.load(base_model), strict=False)
 
         model = model.to(device)
+
         # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None, verbose=verbose)
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
@@ -88,10 +89,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                          train_agent=True, verbose=verbose, pretrain=True, use_baseline=use_baseline)
 
             else:
-                # loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent, train_agent=False,
-                #                       verbose=verbose)
-                #
-                # summarize(writer, "train", epoch, acc, loss)
+
                 agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
@@ -101,6 +99,12 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                 summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
+                if alternate:
+                    loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
+                                          train_agent=False,
+                                          verbose=verbose)
+
+                    summarize(writer, "train", epoch, acc, loss)
 
             #summarize(writer, "train", epoch, acc, loss)
         else:
@@ -239,7 +243,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     criterion = torch.nn.CrossEntropyLoss(reduction="none")
 
     if train_agent:
-        exp_replay = ReplayMemory(10000)
+
 
         #criterion2 = torch.nn.CrossEntropyLoss(ignore_index=196, label_smoothing=0.7)
         loss_func = CustomLoss().to(device)
@@ -304,55 +308,51 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
             optimizer.zero_grad()
-
-            preds, prob, probs, rewards = rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only = not use_baseline)
+            preds, prob, probs, rewards, action, old_action, initial_state = rl_training(agent, bs, inputs, labels, model, correct_only=not use_baseline)
             cum_sum += torch.sum(rewards)
-            batchsize = 32
-            if len(exp_replay) > 100:
-                while len(exp_replay) > batchsize:
-                    with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                        state_batch, action_batch, reward_batch, next_state_batch = exp_replay.sample(batchsize)
-                        state_batch = state_batch.to(device)
 
-                        action_batch = action_batch.to(device)
-                        reward_batch = reward_batch.to(device)
+            with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                new_state = model.module.get_state(inputs, action).detach()
+                old_state = model.module.get_state(inputs, old_action).detach()
+                actions, value = agent(old_state, initial_state)
+                actions = torch.softmax(actions, dim=-1)
+                action[~action.ne(49).bool()] = 49
 
+                state_action_probs= actions.gather(2, action.unsqueeze(-1))
+                gamma = 0.9
+                pos_reward = 1
+                neg_reward = -0.01
+                rewards[rewards > 0] = pos_reward
+                rewards[rewards <= 0] = neg_reward
+                with torch.no_grad():
+                    next_state_values = agent(new_state, initial_state)[1].squeeze()
+                k_step = 5
+                gamma_tensor = torch.tensor([gamma ** k for k in range(k_step+1)], device=device)
+                gamma_tensor = gamma_tensor.repeat(bs, 1)
+                expected_state_action_values = torch.zeros_like(next_state_values, device=device)
 
-                        next_state_batch = next_state_batch.to(device)
+                for i in range(49):
+                    if i < 49-k_step:
+                        expected_state_action_values[:, i] = torch.sum(torch.concat([rewards[:, i: i+k_step],
+                                                                                     next_state_values[:, i+k_step].unsqueeze(1)], dim=-1) * gamma_tensor, dim=-1)
+                    else:
+                        expected_state_action_values[:, i] = torch.sum(rewards[:, i:] * gamma_tensor[:, :49-i], dim=-1)
 
-                        action, value = agent(state_batch)
-                        action = torch.softmax(action, dim=-1)
-                        action = action.mul(action.ne(49).long())
-                        state_action_values = torch.softmax(action, dim=-1).gather(2, action_batch.unsqueeze(-1))
-
-                        gamma = 0.9
-                        pos_reward = 1
-                        neg_reward = -0.01
-
-
-                        reward_batch[reward_batch > 0] = pos_reward
-                        reward_batch[reward_batch <= 0] = neg_reward
-
-                        next_state_values = torch.zeros_like(value, device=device).half().squeeze()
-
-                        with torch.no_grad():
-                            next_state_values[:, :-1] = agent(next_state_batch[:, :-1])[1].squeeze()
-                        expected_state_action_values = (next_state_values * gamma) + reward_batch
-                        loss, policy_loss, value_loss = loss_func(state_action_values.squeeze(), value.squeeze(), expected_state_action_values)
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                    n_items += inputs.size(0)
-                    running_loss += loss.item()
-                    p_loss += policy_loss.item()
-                    v_loss += value_loss.item()
-                    correct += torch.sum(preds == labels)
-                    if counter % 100 == 99:
-                        print(torch.argmax(probs[0], dim=-1))
-                        print(f'Reinforce_Loss {loss}')
-                        acc = correct / n_items
-                        print(acc)
-                    counter += 1
+            loss, policy_loss, value_loss = loss_func(state_action_probs.squeeze(), value.squeeze(), expected_state_action_values)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            n_items += inputs.size(0)
+            running_loss += loss.item()
+            p_loss += policy_loss.item()
+            v_loss += value_loss.item()
+            correct += torch.sum(preds == labels)
+            if counter % 100 == 99:
+                print(torch.argmax(probs[0], dim=-1))
+                print(f'Reinforce_Loss {loss}')
+                acc = correct / n_items
+                print(acc)
+            counter += 1
 
         return running_loss, correct / n_items, p_loss, v_loss, cum_sum / batch_count
     else:
@@ -401,42 +401,48 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         return running_loss, correct / n_items
 
 
-def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False):
+def rl_training(agent, bs, inputs, labels, model, correct_only=False):
     PAD = 49
     with torch.no_grad():
         start = torch.arange(0, 49, device=labels.device)
         #start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
         start = start.repeat(bs, 1)
-        state = model.module.get_state(inputs, start).detach()
-        actions, _ = agent(state)
+        initial_state = model.module.get_state(inputs, start).detach()
+        actions, _ = agent(initial_state)
         prob = torch.softmax(actions, dim=-1)
         dist = Categorical(prob)
         action = dist.sample()
-        state = model.module.get_state(inputs, action).detach()
-        action = action[:, 1:]
-        state[:, -1, :] = float('nan')
-        action = torch.cat([torch.zeros((bs, 1), device=labels.device), action], dim=1).long()
-        action = action.mul(action.ne(PAD).long())
+        old_action = action[:, :-1].clone()
 
-        old_state = model.module.get_state(inputs, action).detach()
+        #old_action[:, -1] = 49
+
+        old_action = torch.cat([torch.zeros((bs, 1), device=labels.device), old_action], dim=1).long()
+
+
+        #action = action.mul(action.ne(PAD).long())
+        #action[~action.ne(PAD).bool()] = PAD
+        #old_action = old_action.mul(old_action.ne(PAD).long())
+        #old_action[~old_action.ne(PAD).bool()] = PAD
+        #old_state = model.module.get_state(inputs, action).detach()
 
         #exp_replay.push(list(old_state.to("cpu")), list(action.flatten(1).to("cpu")), list(state.to("cpu")), [0] * bs)
         rewards = torch.zeros((bs,49), device=labels.device)
-
+        outputs = model(inputs, action).detach()
+        probs, preds = torch.max(outputs, 1)
         if correct_only:
             for i in range(49):
 
                 mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
                 sub_action = action.clone()
                 sub_action[mask] = 49
-                outputs = model(inputs, sub_action).detach()
+                outputs = model(inputs, sub_action)
                 probs, preds = torch.max(outputs, 1)
 
                 reward = (preds == labels).long()
 
                 rewards[:, i] = reward.squeeze()
-            exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
-                            list(state.to("cpu")), list(rewards.to("cpu")))
+            # exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
+            #                 list(state.to("cpu")), list(rewards.to("cpu")))
 
         else:
             og_baseline = model(inputs, None).detach()
@@ -448,7 +454,7 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False
 
                 sub_action = action.clone()
                 sub_action[mask] = 49
-                outputs = model(inputs, sub_action).detach()
+                outputs = model(inputs, sub_action)
                 probs, preds = torch.max(outputs, 1)
                 normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
 
@@ -456,9 +462,9 @@ def rl_training(agent, bs, exp_replay, inputs, labels, model, correct_only=False
                 reward = (normal - baseline)
                 reward[reward == 0] = 0.001 #Equality to baseline should be rewarded
                 rewards[:, i] = reward.squeeze()
-            exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
-                            list(state.to("cpu")), list(rewards.to("cpu")))
-        return preds, prob, probs, rewards
+            # exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
+            #                 list(state.to("cpu")), list(rewards.to("cpu")))
+        return preds, prob, probs, rewards, action, old_action, initial_state
 
 if __name__ == "__main__":
     #os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
