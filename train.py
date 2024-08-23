@@ -277,7 +277,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             start = start.repeat(bs, 1)
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                 state = model.module.get_state(inputs, start).detach()
-                actions, _ = agent(state)
+                mask = start == 49
+                actions, _ = agent(state, mask=mask)
             pseudo_labels = torch.arange(1, 50, device=device)
             pseudo_labels = pseudo_labels.repeat(bs, 1)
 
