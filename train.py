@@ -430,19 +430,17 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
         # outputs = model(inputs, action).detach()
         # probs, preds = torch.max(outputs, 1)
         if correct_only:
-            #for i in range(49):
+            for i in range(49):
 
-            #mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
-            #sub_action = action.clone()
-            #sub_action[mask] = 49
-            outputs = model(inputs, action)
+                mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
+                sub_action = action.clone()
+                sub_action[mask] = 49
+                outputs = model(inputs, sub_action)
+                probs, preds = torch.max(outputs, 1)
 
+                reward = (preds == labels).long()
 
-            probs, preds = torch.max(outputs, 1)
-
-            reward = (preds == labels).long()
-
-            rewards[:, -1] = reward.squeeze()
+                rewards[:, i] = reward.squeeze()
             # exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
             #                 list(state.to("cpu")), list(rewards.to("cpu")))
 
