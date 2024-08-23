@@ -431,7 +431,6 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
         # probs, preds = torch.max(outputs, 1)
         if correct_only:
             for i in range(49):
-
                 mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
                 sub_action = action.clone()
                 sub_action[mask] = 49

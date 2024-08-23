@@ -163,6 +163,7 @@ class ViT(torch.nn.Module):
         print(self.stages)
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
         self.n_patch = seq_lens[0]
+
         base_size = 384 * 2
         self.reinforce = reinforce
         num_heads = 12
@@ -171,6 +172,7 @@ class ViT(torch.nn.Module):
         self.hidden_dims = [base_size] + [int(base_size * 2 * i) for i in range(1, len(self.patch_sizes)
                                                                                 )]
         print(self.hidden_dims)
+
         #self.alt_encoder = vit_b_16(pretrained=pretrained).encoder
         mlp_dim = 3072
 
@@ -247,7 +249,6 @@ class ViT(torch.nn.Module):
         x = x + self.pos_embedding[i]
         state = None
         if permutation is not None:
-
             dark_patch = self.dark_patch.expand(n, -1, -1).detach()
             new_img = torch.cat([x[:, 1:], dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
@@ -266,7 +267,7 @@ class ViT(torch.nn.Module):
         mask = None
         x, _ = self._process_input(x, self.patch_sizes[0], 0, permutation)
         if permutation is not None:
-            mask = permutation == self.n_patch
+            mask = permutation == self.n_patch-1
             mask = torch.cat([torch.zeros((mask.shape[0], 1), device=mask.device), mask], dim = 1)
         x = [x]
         for i in range(len(self.parallel_encoders)-1):
