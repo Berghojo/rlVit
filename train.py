@@ -80,7 +80,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         if reinforce:
             if epoch == pretraining_duration:
                 for g in agent_optimizer.param_groups:
-                    g['lr'] = 1e-8
+                    g['lr'] = 1e-4
 
             if epoch < pretraining_duration:
 
@@ -98,13 +98,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
                 summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
+
                 if alternate:
                     loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
                                           train_agent=False,
                                           verbose=verbose)
 
                     summarize(writer, "train", epoch, acc, loss)
-
 
             #summarize(writer, "train", epoch, acc, loss)
         else:
@@ -152,21 +152,14 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             labels = labels.to(device)
             if agent is not None:
                 bs, _, _, _ = inputs.shape
-                start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
-                start[:, 0] = 0
-                initial = torch.arange(0, 49, device=device)
-                initial = initial.repeat(bs, 1)
-                image = model.module.get_state(inputs.to(device), initial)
-                for i in range(48):
-                    state = model.module.get_state(inputs, start)
-                    mask = start == 49
-                    actions, values = agent(state, image, mask)
-                    actions = torch.softmax(actions, dim=-1)
-                    vals, action = torch.max(actions, dim=-1)
-
-                    start[:, i+1] = action[:, i]
-                start = start.mul(start.ne(PAD).long())
-                outputs = model(inputs, start)
+                start = torch.arange(0, 49, device=labels.device)
+                start = start.repeat(bs, 1)
+                image = model.module.get_state(inputs.to(device), start)
+                actions, values = agent(image)
+                actions = torch.softmax(actions, dim=-1)
+                vals, action = torch.max(actions, dim=-1)
+                start[:, 1:] = action[:, :-1]
+                outputs = model(inputs, action)
             else:
                 outputs = model(inputs, None)
             _, preds = torch.max(outputs, 1)
@@ -178,26 +171,18 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     if agent is not None:
         test_input, _ = next(iter(loader))
         test_input = torch.unsqueeze(test_input[0], 0)
-        start = torch.full((1, 49), 49, dtype=torch.long, device=device)
-        probs = torch.full((1, 49), 0, dtype=torch.long, device=device)
-        initial = torch.arange(0, 49, device=labels.device)
-        initial = initial.repeat(1, 1)
-        image = model.module.get_state(test_input.to(device), initial.to(device))
+        start = torch.arange(0, 49, device=labels.device)
+        start = start.repeat(1, 1)
+        state = model.module.get_state(test_input.to(device), start.to(device))
+        actions, values = agent(state)
+        vals, action = torch.max(actions, dim=-1)
+        start[:, 1:] = action[:, :-1]
+        probs = vals
 
-        start[:, 0] = 0
-        for i in range(48):
-            state = model.module.get_state(test_input.to(device), start)
-
-            mask = start == 49
-            actions, values = agent(state, image, mask)
-
-            vals, action = torch.max(actions, dim=-1)
-            start[:, i+1] = action[:, i]
-            probs[:, i+1] = vals[:, i]
-        start = start.mul(start.ne(PAD).long())
         f = open("permutation.txt", "a")
 
         print(list(start), file=f)
+        print(list(probs), file=f)
 
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
     accuracy = sum(correct) / sum(overall)
@@ -277,13 +262,14 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             start = start.repeat(bs, 1)
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                 state = model.module.get_state(inputs, start).detach()
-                mask = start == 49
-                actions, _ = agent(state, mask=mask)
+
+                actions, _ = agent(state)
             pseudo_labels = torch.arange(1, 50, device=device)
             pseudo_labels = pseudo_labels.repeat(bs, 1)
 
             loss = criterion(actions.flatten(0, 1), pseudo_labels.flatten(0, 1))
-            loss = torch.mean(loss)
+            loss = torch.sum(loss)
+
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
@@ -317,7 +303,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 old_state = model.module.get_state(inputs, old_action).detach()
                 actions, value = agent(old_state, initial_state)
                 actions = torch.softmax(actions, dim=-1)
-                action[~action.ne(49).bool()] = 49
+
 
                 state_action_probs= actions.gather(2, action.unsqueeze(-1))
                 gamma = 0.9
@@ -365,24 +351,19 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             optimizer.zero_grad()
             bs, _, _, _ = inputs.shape
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                start = torch.full((bs, 49), 49, dtype=torch.long, device=device)
-                initial = torch.arange(0, 49, device=labels.device)
-                initial = initial.repeat(bs, 1)
-                image = model.module.get_state(inputs.to(device), initial)
-                start[:, 0] = 0
-                for i in range(48):
-                    mask = start == 49
+                start = torch.arange(0, 49, device=labels.device)
+                start = start.repeat(bs, 1)
 
-                    state = model.module.get_state(inputs, start)
+                image = model.module.get_state(inputs.to(device), start)
 
-                    actions, values = agent(state, image, mask)
-                    actions = torch.softmax(actions, dim=-1)
-                    action = torch.argmax(actions, dim=-1)
-                    start[:, i+1] = action[:, i]
-                start = start.mul(start.ne(49).long())
+
+
+                actions, values = agent(image)
+                actions = torch.softmax(actions, dim=-1)
+                action = torch.argmax(actions, dim=-1)
+                start[:, 1:] = action[:, :-1]
                 outputs = model(inputs, start)
                 probs, preds = torch.max(outputs, -1)
-
             loss = criterion(outputs, labels)
             loss = torch.mean(loss)
             correct += torch.sum(preds == labels)
@@ -420,20 +401,12 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
         old_action = torch.cat([torch.zeros((bs, 1), device=labels.device), old_action], dim=1).long()
 
 
-        #action = action.mul(action.ne(PAD).long())
-        #action[~action.ne(PAD).bool()] = PAD
-        #old_action = old_action.mul(old_action.ne(PAD).long())
-        #old_action[~old_action.ne(PAD).bool()] = PAD
-        #old_state = model.module.get_state(inputs, action).detach()
-
-        #exp_replay.push(list(old_state.to("cpu")), list(action.flatten(1).to("cpu")), list(state.to("cpu")), [0] * bs)
         rewards = torch.zeros((bs,49), device=labels.device)
-        # outputs = model(inputs, action).detach()
-        # probs, preds = torch.max(outputs, 1)
+
         if correct_only:
             for i in range(49):
                 mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
-                sub_action = action.clone()
+                sub_action = old_action.clone()
                 sub_action[mask] = 49
                 outputs = model(inputs, sub_action)
                 probs, preds = torch.max(outputs, 1)
@@ -441,8 +414,6 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
                 reward = (preds == labels).long()
 
                 rewards[:, i] = reward.squeeze()
-            # exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
-            #                 list(state.to("cpu")), list(rewards.to("cpu")))
 
         else:
             og_baseline = model(inputs, None).detach()
@@ -452,7 +423,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
 
                 mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
 
-                sub_action = action.clone()
+                sub_action = old_action.clone()
                 sub_action[mask] = 49
                 outputs = model(inputs, sub_action)
                 probs, preds = torch.max(outputs, 1)

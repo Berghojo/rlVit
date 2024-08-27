@@ -95,7 +95,9 @@ class SimpleAgent(nn.Module):
     def forward(self, state, memory=None, mask=None):
         if memory is None:
             memory = state
-        x = self.decoder(state, memory, tgt_key_padding_mask=mask)
+        bs, seq_len, h= memory.shape
+        t_mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len)
+        x = self.decoder(state, memory, tgt_key_padding_mask=mask, tgt_is_causal=True, tgt_mask=t_mask)
         #x = self.relu(self.linear1(x))
         actor = self.action(x)
         critic = self.value(x)
