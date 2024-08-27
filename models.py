@@ -187,7 +187,6 @@ class ViT(torch.nn.Module):
 
         self.pos_encoder = nn.ModuleList([PositionalEncodingPermute1D(size) for size in self.hidden_dims])
         self.class_token = nn.ParameterList([nn.Parameter(torch.zeros(1, 1, hd)) for hd in self.hidden_dims])
-        self.dark_patch = nn.Parameter(torch.zeros(1, 1, self.hidden_dims[0]))
         self.dropout = nn.Dropout(dropout)
         self.parallel_encoders = nn.ModuleList(
             [ParallelEncoder(s, num_heads, self.hidden_dims, mlp_dim, dropout, attention_dropout, norm_layer) for s in
@@ -249,7 +248,7 @@ class ViT(torch.nn.Module):
         x = x + self.pos_embedding[i]
         state = None
         if permutation is not None:
-            dark_patch = self.dark_patch.expand(n, -1, -1).detach()
+            dark_patch = torch.zeros(1, 1, self.hidden_dims[0], device=x.device).expand(n, -1, -1).detach()
             new_img = torch.cat([x[:, 1:], dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
             new_img = torch.gather(new_img, 1, expanded_permutations)
@@ -268,7 +267,7 @@ class ViT(torch.nn.Module):
         x, _ = self._process_input(x, self.patch_sizes[0], 0, permutation)
         if permutation is not None:
             mask = permutation == self.n_patch-1
-            mask = torch.cat([torch.zeros((mask.shape[0], 1), device=mask.device), mask], dim = 1)
+            mask = torch.cat([torch.zeros((mask.shape[0], 1), device=mask.device), mask], dim =1)
         x = [x]
         for i in range(len(self.parallel_encoders)-1):
             x = self.fusion_layers[i](self.parallel_encoders[i](x, mask))

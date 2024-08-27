@@ -2,7 +2,7 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 import torchvision
 import matplotlib.pyplot as plt
-
+from torch.utils.data.distributed import DistributedSampler
 import torch
 import numpy as np
 class Data(Dataset):
@@ -53,14 +53,16 @@ class Data(Dataset):
 
         return image, label
 
-def get_loader(size, bs):
+def get_loader(size, bs, world_size=1, rank=0):
 
     train_data = Data(size=size, split="train")
     test_data = Data(size=size, split="test")
+    train_sampler = DistributedSampler(train_data, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
+    test_sampler = DistributedSampler(train_data, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=bs,
-                                               shuffle=True, num_workers=6)
+                                               shuffle=False, num_workers=6, sampler=train_sampler, pin_memory=False)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=bs,
-                                             shuffle=False, num_workers=6)
+                                             shuffle=False, num_workers=6, sampler=test_sampler, pin_memory=False)
 
     return train_loader, test_loader
 

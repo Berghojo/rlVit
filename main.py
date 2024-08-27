@@ -1,6 +1,12 @@
 import argparse
 from train import train
-
+import torch.multiprocessing as mp
+import torch
+def main(rank, world_size, args):
+    train(args.run_name, args.nclasses, args.nepochs, args.base_path, reinforce=args.use_rl,
+          verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,
+          warmup=args.warmup, use_baseline=args.baseline
+          , logging=args.logging, alternate=args.alternate, rank=rank, world_size=world_size)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RL-ViT arg parser")
@@ -31,10 +37,13 @@ if __name__ == "__main__":
     parser.add_argument('--no-alternate', dest='alternate', action='store_false')
     parser.set_defaults(alternate=True)
     args = parser.parse_args()
-    print(args)
 
-    train(args.run_name, args.nclasses, args.nepochs, args.base_path, reinforce=args.use_rl,
-          verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,
-          warmup=args.warmup, use_baseline=args.baseline
-          , logging=args.logging, alternate=args.alternate)
+    world_size = torch.cuda.device_count()
+
+    mp.spawn(
+        main,
+        args=(world_size, args),
+        nprocs=world_size
+    )
+
 

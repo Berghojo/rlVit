@@ -8,6 +8,9 @@ import random
 import gc
 from tqdm import tqdm
 from torch.distributions.categorical import Categorical
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
 
 import os
 
@@ -16,9 +19,18 @@ from agent import *
 from models import *
 from data import *
 
+def setup(rank, world_size):
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
 
+    # initialize the process group
+    dist.init_process_group("gloo", rank=rank, world_size=world_size)
+
+def cleanup():
+    dist.destroy_process_group()
 def set_deterministic(seed=2408):
     # settings based on https://pytorch.org/docs/stable/notes/randomness.html   Stand 2021
+    torch.backends.cudnn.benchmark = True
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
@@ -28,8 +40,11 @@ def set_deterministic(seed=2408):
 
 
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
-          verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False, alternate=True):
+          verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False, alternate=True,
+          rank=0, world_size=1):
     #torch.autograd.set_detect_anomaly(True)
+
+    setup(rank, world_size)
     set_deterministic()
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
@@ -43,9 +58,8 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     train_loader, test_loader = get_loader(img_size, batch_size)
     if reinforce:
         print("Reinforce")
-        agent = SimpleAgent(49)
-        agent = torch.nn.DataParallel(agent)
-        agent = agent.to(device)
+        agent = SimpleAgent(49).to(rank)
+        agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=True)
         agent_optimizer = optim.Adam(agent.parameters(), lr=1e-5)
         if agent_model is not None:
             agent.load_state_dict(torch.load(agent_model))
@@ -123,7 +137,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                     torch.save(agent.state_dict(), f"saves/best_{model_name}_agent_@{launch_time}.pth")
 
             scheduler.step()
-
+    cleanup()
 
 def summarize(writer, split, epoch, acc, loss=None):
     writer.add_scalar('accuracy/' + split, acc, epoch)
