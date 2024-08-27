@@ -412,7 +412,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
 
         #old_action[:, -1] = 49
 
-        old_action = torch.cat([torch.zeros((bs, 1), device=labels.device), old_action], dim=1).long()
+        old_action = torch.cat([torch.zeros((bs, 1), device=old_action.device), old_action], dim=1).long()
 
         if correct_only:
 
