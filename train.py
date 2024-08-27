@@ -313,6 +313,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             cum_sum += torch.sum(rewards)
 
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                print(device)
+                print(inputs.device, action.device)
                 new_state = model.module.get_state(inputs, action).detach()
                 old_state = model.module.get_state(inputs, old_action).detach()
                 actions, value = agent(old_state, initial_state)
@@ -400,7 +402,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 def rl_training(agent, bs, inputs, labels, model, correct_only=False):
 
     with torch.no_grad():
-        start = torch.arange(0, 49, device=labels.device)
+        start = torch.arange(0, 49, device=inputs.device)
         #start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
         start = start.repeat(bs, 1)
         initial_state = model.module.get_state(inputs, start).detach()
