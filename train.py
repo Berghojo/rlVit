@@ -384,7 +384,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
 
 def rl_training(agent, bs, inputs, labels, model, correct_only=False):
-    PAD = 49
+
     with torch.no_grad():
         start = torch.arange(0, 49, device=labels.device)
         #start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
@@ -400,20 +400,26 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
 
         old_action = torch.cat([torch.zeros((bs, 1), device=labels.device), old_action], dim=1).long()
 
-
-        rewards = torch.zeros((bs,49), device=labels.device)
-
         if correct_only:
+
+            inputs = inputs.repeat(49, 1, 1, 1)
+
+            subactions = []
             for i in range(49):
-                mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
+                mask = torch.cat([torch.zeros((bs, i + 1)), torch.ones((bs, 49 - i - 1))], dim=-1).bool()
                 sub_action = old_action.clone()
                 sub_action[mask] = 49
-                outputs = model(inputs, sub_action)
-                probs, preds = torch.max(outputs, 1)
+                subactions.append(sub_action)
+            subactions = torch.cat(subactions, dim=0)
 
-                reward = (preds == labels).long()
+            outputs = model(inputs, subactions)
 
-                rewards[:, i] = reward.squeeze()
+            probs, preds = torch.max(outputs, 1)
+            del outputs
+            reward = (preds == labels.repeat(49)).long()
+            rewards = reward.reshape((bs, 49))
+            preds = preds.reshape((bs, 49))[:, -1]
+            probs = probs.reshape((bs, 49))[:, -1]
 
         else:
             og_baseline = model(inputs, None).detach()
