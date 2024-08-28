@@ -415,27 +415,21 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
         #old_action[:, -1] = 49
 
         old_action = torch.cat([torch.zeros((bs, 1), device=old_action.device), old_action], dim=1).long()
-
+        rewards = torch.zeros((bs, 49), device=labels.device)
         if correct_only:
 
-            inputs = inputs.repeat(49, 1, 1, 1)
-
-            subactions = []
+            #preds, probs, rewards = combine_to_batch(bs, inputs, labels, model, old_action)
             for i in range(49):
                 mask = torch.cat([torch.zeros((bs, i + 1)), torch.ones((bs, 49 - i - 1))], dim=-1).bool()
                 sub_action = old_action.clone()
                 sub_action[mask] = 49
-                subactions.append(sub_action)
-            subactions = torch.cat(subactions, dim=0)
+                outputs = model(inputs, sub_action)
+                probs, preds = torch.max(outputs, 1)
 
-            outputs = model(inputs, subactions)
+                reward = (preds == labels).long()
 
-            probs, preds = torch.max(outputs, 1)
-            del outputs
-            reward = (preds == labels.repeat(49)).long()
-            rewards = reward.reshape((bs, 49))
-            preds = preds.reshape((bs, 49))[:, -1]
-            probs = probs.reshape((bs, 49))[:, -1]
+                rewards[:, i] = reward.squeeze()
+
 
         else:
             og_baseline = model(inputs, None).detach()
@@ -458,6 +452,26 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
             # exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
             #                 list(state.to("cpu")), list(rewards.to("cpu")))
         return preds, prob, probs, rewards, action, old_action, initial_state
+
+
+def combine_to_batch(bs, inputs, labels, model, old_action):
+    inputs = inputs.repeat(49, 1, 1, 1)
+    subactions = []
+    for i in range(49):
+        mask = torch.cat([torch.zeros((bs, i + 1)), torch.ones((bs, 49 - i - 1))], dim=-1).bool()
+        sub_action = old_action.clone()
+        sub_action[mask] = 49
+        subactions.append(sub_action)
+    subactions = torch.cat(subactions, dim=0)
+    outputs = model(inputs, subactions)
+    probs, preds = torch.max(outputs, 1)
+    del outputs
+    reward = (preds == labels.repeat(49)).long()
+    rewards = reward.reshape((bs, 49))
+    preds = preds.reshape((bs, 49))[:, -1]
+    probs = probs.reshape((bs, 49))[:, -1]
+    return preds, probs, rewards
+
 
 if __name__ == "__main__":
     #os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
