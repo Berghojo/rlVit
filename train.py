@@ -48,7 +48,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     set_deterministic()
     if not os.path.exists("./saves"):
         os.makedirs("./saves/")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = rank #torch.device("cuda" if torch.cuda.is_available() else "cpu")
     start_logging = logging
     pretraining_duration = warmup
     torch.cuda.empty_cache()
@@ -67,11 +67,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = None
     if base_model:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
-        model = torch.nn.DataParallel(model)
+
         model.load_state_dict(torch.load(base_model), strict=False)
 
-        model = model.to(device)
-
+        model = model.to(rank)
+        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
         # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None, verbose=verbose)
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
@@ -80,8 +80,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
             10, pretrained)
-        model = torch.nn.DataParallel(model)
-        model = model.to(device)
+
+        model = model.to(rank)
+        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
 
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
@@ -313,8 +314,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             cum_sum += torch.sum(rewards)
 
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                print(device)
-                print(inputs.device, action.device)
+
                 new_state = model.module.get_state(inputs, action).detach()
                 old_state = model.module.get_state(inputs, old_action).detach()
                 actions, value = agent(old_state, initial_state)
@@ -360,17 +360,17 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         return running_loss, correct / n_items, p_loss, v_loss, cum_sum / batch_count
     else:
         for inputs, labels in tqdm(loader, disable=not verbose):
-            inputs = inputs.to(device)
+            #inputs = inputs.to(device)
             bs, _, _, _ = inputs.shape
             labels = labels.type(torch.LongTensor)
-            labels = labels.to(device)
+            #labels = labels.to(device)
             optimizer.zero_grad()
             bs, _, _, _ = inputs.shape
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                 start = torch.arange(0, 49, device=labels.device)
                 start = start.repeat(bs, 1)
 
-                image = model.module.get_state(inputs.to(device), start)
+                image = model.module.get_state(inputs, start)
 
 
 
