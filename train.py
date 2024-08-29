@@ -58,20 +58,29 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     train_loader, test_loader = get_loader(img_size, batch_size)
     if reinforce:
         print("Reinforce")
-        agent = SimpleAgent(49).to(rank)
+        agent = SimpleAgent(49)
+        if agent_model is not None:
+            agent.load_state_dict(torch.load(agent_model, map_location="cpu"))
+        agent = agent.to(device)
         agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=True)
         agent_optimizer = optim.Adam(agent.parameters(), lr=1e-5)
-        if agent_model is not None:
-            agent.load_state_dict(torch.load(agent_model))
+
     else:
         agent = None
     if base_model:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
+        mydic = torch.load(base_model, map_location="cpu")
+        new_state_dict = OrderedDict()
+        ignore_list = ["dark_patch"]
+        for k, v in mydic.items():
+            name = k[7:]  # remove `module.`
+            if name not in ignore_list:
+                new_state_dict[name] = v
 
-        model.load_state_dict(torch.load(base_model), strict=False)
-
+        model.load_state_dict(new_state_dict)
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
+
         class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None, verbose=verbose)
         print('[Test] ACC: {:.4f} '.format(accuracy))
         print(f'[Test] CLASS ACC: {class_accuracy} @-1')
@@ -359,10 +368,10 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         return running_loss, correct / n_items, p_loss, v_loss, cum_sum / batch_count
     else:
         for inputs, labels in tqdm(loader, disable=not verbose):
-            #inputs = inputs.to(device)
+            inputs = inputs.to(device)
             bs, _, _, _ = inputs.shape
             labels = labels.type(torch.LongTensor)
-            #labels = labels.to(device)
+            labels = labels.to(device)
             optimizer.zero_grad()
             bs, _, _, _ = inputs.shape
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
@@ -448,8 +457,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
                 reward = (normal - baseline)
                 reward[reward == 0] = 0.001 #Equality to baseline should be rewarded
                 rewards[:, i] = reward.squeeze()
-            # exp_replay.push(list(old_state.to("cpu")), list(action.to("cpu")),
-            #                 list(state.to("cpu")), list(rewards.to("cpu")))
+
         return preds, prob, probs, rewards, action, old_action, initial_state
 
 
