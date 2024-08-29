@@ -153,7 +153,7 @@ def summarize_agent(writer, split, epoch, cum_reward, value_loss, policy_loss):
 
 
 def eval_vit(model, device, loader, n_classes, agent, verbose=True):
-    PAD = 49
+
     model.eval()
     if agent is not None:
         agent.eval()
@@ -161,7 +161,6 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
     overall = torch.zeros(n_classes)
     with torch.no_grad():
         for inputs, labels in tqdm(loader, disable=not verbose):
-
             inputs = inputs.to(device)
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
