@@ -60,7 +60,15 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         print("Reinforce")
         agent = SimpleAgent(49)
         if agent_model is not None:
-            agent.load_state_dict(torch.load(agent_model, map_location="cpu"))
+            new_state_dict = OrderedDict()
+            mydic = torch.load(agent_model, map_location="cpu")
+            ignore_list = []
+            for k, v in mydic.items():
+                name = k[7:]  # remove `module.`
+                if name not in ignore_list and k[:7] == "module.":
+                    new_state_dict[name] = v
+            agent.load_state_dict(new_state_dict)
+
         agent = agent.to(device)
         agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=True)
         agent_optimizer = optim.Adam(agent.parameters(), lr=1e-5)
@@ -74,7 +82,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         ignore_list = ["dark_patch"]
         for k, v in mydic.items():
             name = k[7:]  # remove `module.`
-            if name not in ignore_list:
+            if name not in ignore_list and k[:7] == "module.":
                 new_state_dict[name] = v
 
         model.load_state_dict(new_state_dict)
