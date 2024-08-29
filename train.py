@@ -72,11 +72,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
-        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None, verbose=verbose)
-        # print('[Test] ACC: {:.4f} '.format(accuracy))
-        # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-        #
-        # summarize(writer, "test", -1, accuracy)
+        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None, verbose=verbose)
+        print('[Test] ACC: {:.4f} '.format(accuracy))
+        print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+
+        summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
             10, pretrained)
@@ -104,7 +104,12 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                          train_agent=True, verbose=verbose, pretrain=True, use_baseline=use_baseline)
 
             else:
+                if alternate:
+                    loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
+                                          train_agent=False,
+                                          verbose=verbose)
 
+                    summarize(writer, "train", epoch, acc, loss)
                 agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
@@ -114,12 +119,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                 summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
-                if alternate:
-                    loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
-                                          train_agent=False,
-                                          verbose=verbose)
 
-                    summarize(writer, "train", epoch, acc, loss)
 
             #summarize(writer, "train", epoch, acc, loss)
         else:
