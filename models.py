@@ -241,20 +241,22 @@ class ViT(torch.nn.Module):
         # embedding dimension
 
         x = x.permute(0, 2, 1)
-
-        batch_class_token = self.class_token[i].expand(n, -1, -1)
-        x = torch.cat([batch_class_token, x], dim=1)
-        #
-        x = x + self.pos_embedding[i]
         state = None
         if permutation is not None:
             dark_patch = torch.zeros(1, 1, self.hidden_dims[0], device=x.device).expand(n, -1, -1).detach()
-            new_img = torch.cat([x[:, 1:], dark_patch], dim=1)
+            x = torch.cat([x, dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
-            new_img = torch.gather(new_img, 1, expanded_permutations)
-            state = new_img
-            x[:, 1:] = new_img
+            # temp = torch.zeros_like(x)
+            # for batch, i in enumerate(permutation):
+            #     temp[batch] = new_img[batch, i]
+            x = torch.gather(x, 1, expanded_permutations)
+            state = x
+
         x = x + self.pos_encoder[0](x)
+        batch_class_token = self.class_token[i].expand(n, -1, -1)
+        x = torch.cat([batch_class_token, x], dim=1)
+
+        x = x + self.pos_embedding[i]
         return x, state
 
     def freeze(self, freeze):

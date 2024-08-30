@@ -89,11 +89,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
 
-        class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None, verbose=verbose)
-        print('[Test] ACC: {:.4f} '.format(accuracy))
-        print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent if agent else None, verbose=verbose)
+        # print('[Test] ACC: {:.4f} '.format(accuracy))
+        # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
 
-        summarize(writer, "test", -1, accuracy)
+        # summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
             10, pretrained)
@@ -185,12 +185,12 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
                 bs, _, _, _ = inputs.shape
                 start = torch.arange(0, 49, device=labels.device)
                 start = start.repeat(bs, 1)
-                image = model.module.get_state(inputs.to(device), start)
+                image = model.module.get_state(inputs, start)
                 actions, values = agent(image)
-                actions = torch.softmax(actions, dim=-1)
-                vals, action = torch.max(actions, dim=-1)
+                #actions = torch.softmax(actions, dim=-1)
+                action = torch.argmax(actions, dim=-1)
                 start[:, 1:] = action[:, :-1]
-                outputs = model(inputs, action)
+                outputs = model(inputs, start)
             else:
                 outputs = model(inputs, None)
             _, preds = torch.max(outputs, 1)
@@ -199,21 +199,23 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
                 overall[preds[i]] += 1
                 if boolean:
                     correct[preds[i]] += 1
-    if agent is not None:
-        test_input, _ = next(iter(loader))
-        test_input = torch.unsqueeze(test_input[0], 0)
-        start = torch.arange(0, 49, device=labels.device)
-        start = start.repeat(1, 1)
-        state = model.module.get_state(test_input.to(device), start.to(device))
-        actions, values = agent(state)
-        vals, action = torch.max(actions, dim=-1)
-        start[:, 1:] = action[:, :-1]
-        probs = vals
+        if agent is not None:
+            test_input, _ = next(iter(loader))
+            test_input = torch.unsqueeze(test_input[0], 0)
+            start = torch.arange(0, 49, device=device)
+            start = start.repeat(1, 1)
 
-        f = open("permutation.txt", "a")
+            state = model.module.get_state(test_input.to(device), start)
+            actions, values = agent(state)
+            actions = torch.softmax(actions, dim=-1)
+            vals, action = torch.max(actions, dim=-1)
+            start[:, 1:] = action[:, :-1]
+            probs = vals
 
-        print(list(start), file=f)
-        print(list(probs), file=f)
+            f = open("permutation.txt", "a")
+
+            print(list(action), file=f)
+            print(list(probs), file=f)
 
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
     accuracy = sum(correct) / sum(overall)
@@ -295,6 +297,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 state = model.module.get_state(inputs, start).detach()
 
                 actions, _ = agent(state)
+
             pseudo_labels = torch.arange(1, 50, device=device)
             pseudo_labels = pseudo_labels.repeat(bs, 1)
 
@@ -332,15 +335,17 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
 
                 new_state = model.module.get_state(inputs, action).detach()
-                old_state = model.module.get_state(inputs, old_action).detach()
-                actions, value = agent(old_state, initial_state)
+                #old_state = model.module.get_state(inputs, old_action).detach()
+
+                actions, value = agent(initial_state)
                 actions = torch.softmax(actions, dim=-1)
 
 
-                state_action_probs= actions.gather(2, action.unsqueeze(-1))
+                state_action_probs = actions.gather(2, action.unsqueeze(-1))
+
                 gamma = 0.9
                 pos_reward = 1
-                neg_reward = -0.01
+                neg_reward = 0
                 rewards[rewards > 0] = pos_reward
                 rewards[rewards <= 0] = neg_reward
                 with torch.no_grad():
