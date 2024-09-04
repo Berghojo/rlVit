@@ -32,7 +32,6 @@ class Agent(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=6, norm=encoder_norm)
 
         self._reset_parameters()
-
         modules = list(resnet.children())[:-2]
         self.resnet = nn.Sequential(*modules)
         for param in self.resnet.parameters():
@@ -84,9 +83,13 @@ class SimpleAgent(nn.Module):
         self.value = nn.Linear(in_features=768, out_features=1)
         self.softmax = nn.LogSoftmax(dim=-1)
         decoder_layer = nn.TransformerDecoderLayer(d_model=768, nhead=8, norm_first=True, batch_first=True)
-        self.decoder = nn.TransformerDecoder(decoder_layer, 6)
+        self.decoder = nn.TransformerDecoder(decoder_layer, 6, norm=nn.LayerNorm(768))
         self.relu = nn.ReLU()
-
+        self._reset_parameters()
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
     def freeze(self, freeze):
         print("Setting Agent Training to: ", freeze)
         for param in self.parameters():
@@ -95,12 +98,14 @@ class SimpleAgent(nn.Module):
     def forward(self, state, memory=None, mask=None):
         if memory is None:
             memory = state
-        bs, seq_len, h= memory.shape
+        bs, seq_len, h = memory.shape
         t_mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len)
+
         x = self.decoder(state, memory, tgt_key_padding_mask=mask, tgt_is_causal=True, tgt_mask=t_mask)
         #x = self.relu(self.linear1(x))
         actor = self.action(x)
         critic = self.value(x)
+
         return actor, critic
         # state = state.flatten(1)
         # x = self.relu(self.linear1(state))
