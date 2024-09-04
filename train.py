@@ -81,7 +81,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         new_state_dict = OrderedDict()
         ignore_list = ["dark_patch"]
         for k, v in mydic.items():
-            name = k[7:]  # remove `module.`
+            name = k[7:]  # remove `module.`x
             if name not in ignore_list and k[:7] == "module.":
                 new_state_dict[name] = v
 
@@ -320,6 +320,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         print("running_loss: ", running_loss)
         return running_loss, correct / n_items
     if train_agent:
+        loss_func = CustomLoss().to(device)
         batch_count = 0
         cum_sum = 0
         p_loss = 0
@@ -337,9 +338,11 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
 
                 new_state = model.module.get_state(inputs, action).detach()
-                #old_state = model.module.get_state(inputs, old_action).detach()
+                old_state = model.module.get_state(inputs, old_action).detach()
 
-                actions, value = agent(initial_state)
+                actions, value = agent(old_state)
+
+
                 actions = torch.softmax(actions, dim=-1)
 
 
@@ -352,7 +355,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 rewards[rewards <= 0] = neg_reward
                 with torch.no_grad():
                     next_state_values = agent(new_state, initial_state)[1].squeeze()
-                k_step = 5
+                k_step = 10
                 gamma_tensor = torch.tensor([gamma ** k for k in range(k_step+1)], device=device)
                 gamma_tensor = gamma_tensor.repeat(bs, 1)
                 expected_state_action_values = torch.zeros_like(next_state_values, device=device)
