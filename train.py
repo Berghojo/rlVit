@@ -338,9 +338,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
 
                 new_state = model.module.get_state(inputs, action).detach()
-                #old_state = model.module.get_state(inputs, old_action).detach()
+                old_state = model.module.get_state(inputs, old_action).detach()
 
-                actions, value = agent(old_action)
+                actions, value = agent(old_state)
 
 
                 actions = torch.softmax(actions, dim=-1)
