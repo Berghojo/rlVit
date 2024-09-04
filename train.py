@@ -338,9 +338,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
 
                 new_state = model.module.get_state(inputs, action).detach()
-                old_state = model.module.get_state(inputs, old_action).detach()
+                #old_state = model.module.get_state(inputs, old_action).detach()
 
-                actions, value = agent(old_state)
+                actions, value = agent(old_action)
 
 
                 actions = torch.softmax(actions, dim=-1)
@@ -428,49 +428,40 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
 
 def rl_training(agent, bs, inputs, labels, model, correct_only=False):
-
     with torch.no_grad():
         start = torch.arange(0, 49, device=inputs.device)
-        #start = torch.full((bs, 49), 49, dtype=torch.long, device=labels.device)
         start = start.repeat(bs, 1)
-        initial_state = model.module.get_state(inputs, start).detach()
-        actions, _ = agent(initial_state)
-        prob = torch.softmax(actions, dim=-1)
-        dist = Categorical(prob)
-        action = dist.sample()
-        old_action = action[:, :-1].clone()
+        input_state = model.module.get_state(inputs, start).detach()
 
-        #old_action[:, -1] = 49
+        start_image = torch.zeros(1, 1, input_state.shape[2], device=inputs.device).expand(bs, -1, -1)
+        start_image = torch.cat([input_state, start_image], dim=1)
+        sequence = torch.full((bs, 49), 49, dtype=torch.long, device=inputs.device)
+        new_action = torch.full((bs, 49), 49, dtype=torch.long, device=inputs.device)
+        sequence[:, 0] = torch.randint(0, 49, (bs, ))
+        rewards = torch.zeros((bs, 49), device=inputs.device)
+        og_baseline = model(inputs, None).detach()
+        baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+        for i in range(48):
+            expanded_permutations = sequence.unsqueeze(-1).expand(-1, -1, 768).detach()
 
-        old_action = torch.cat([torch.zeros((bs, 1), device=old_action.device), old_action], dim=1).long()
-        rewards = torch.zeros((bs, 49), device=labels.device)
-        if correct_only:
+            state = torch.gather(start_image, 1, expanded_permutations)
 
-            #preds, probs, rewards = combine_to_batch(bs, inputs, labels, model, old_action)
-            for i in range(49):
-                mask = torch.cat([torch.zeros((bs, i + 1)), torch.ones((bs, 49 - i - 1))], dim=-1).bool()
-                sub_action = old_action.clone()
-                sub_action[mask] = 49
-                outputs = model(inputs, sub_action)
-                probs, preds = torch.max(outputs, -1)
+            actions, _ = agent(state, input_state, sequence == 49)
+            prob = torch.softmax(actions, dim=-1)
+            dist = Categorical(prob)
+            action = dist.sample()
+            sequence[:, i+1] = action[:, i]
+            new_action[:, i] = action[:, i]
 
+            outputs = model(inputs, sequence)
+            probs, preds = torch.max(outputs, -1)
+            if correct_only:
                 reward = (preds == labels).long()
-
                 rewards[:, i] = reward.squeeze()
 
 
-        else:
-            og_baseline = model(inputs, None).detach()
-            baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+            else:
 
-            for i in range(49):
-
-                mask = torch.cat([torch.zeros((bs, i+1)), torch.ones((bs, 49-i-1))], dim=-1).bool()
-
-                sub_action = old_action.clone()
-                sub_action[mask] = 49
-                outputs = model(inputs, sub_action)
-                probs, preds = torch.max(outputs, -1)
                 normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
                 reward_mask = (preds == labels).long()
 
@@ -478,7 +469,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
                 #reward[reward == 0] = 0.001 #Equality to baseline should be rewarded
                 rewards[:, i] = reward
 
-        return preds, prob, probs, rewards, action, old_action, initial_state
+        return preds, prob, probs, rewards, new_action, sequence, input_state
 
 
 def combine_to_batch(bs, inputs, labels, model, old_action):

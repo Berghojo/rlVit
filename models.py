@@ -244,16 +244,12 @@ class ViT(torch.nn.Module):
         state = None
         if permutation is not None:
             dark_patch = torch.zeros(1, 1, self.hidden_dims[0], device=x.device).expand(n, -1, -1).detach()
-            temp = torch.zeros_like(x)
+
 
             x = torch.cat([x, dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
-            #print(expanded_permutations[0][0])
-            for batch, e in enumerate(permutation):
-                temp[batch] = x[batch, e]
 
-            x = temp
-            #x = torch.gather(x, 1, expanded_permutations)
+            x = torch.gather(x, 1, expanded_permutations)
             state = x
 
         x = x + self.pos_encoder[0](x)

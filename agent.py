@@ -99,7 +99,7 @@ class SimpleAgent(nn.Module):
         if memory is None:
             memory = state
         bs, seq_len, h = memory.shape
-        t_mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len)
+        t_mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len, device=state.device)
 
         x = self.decoder(state, memory, tgt_key_padding_mask=mask, tgt_is_causal=True, tgt_mask=t_mask)
         #x = self.relu(self.linear1(x))
