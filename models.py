@@ -244,19 +244,19 @@ class ViT(torch.nn.Module):
         state = None
         if permutation is not None:
             dark_patch = torch.zeros(1, 1, self.hidden_dims[0], device=x.device).expand(n, -1, -1).detach()
-
-
-            x = torch.cat([x, dark_patch], dim=1)
+            start_patch = torch.full((1, 1, self.hidden_dims[0]), -1, device=x.device).expand(n, -1, -1).detach()
+            x = torch.cat([x, dark_patch, start_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
 
             x = torch.gather(x, 1, expanded_permutations)
             state = x
 
-        x = x + self.pos_encoder[0](x)
-        batch_class_token = self.class_token[i].expand(n, -1, -1)
-        x = torch.cat([batch_class_token, x], dim=1)
+        if x.shape[1] == 49:
+            x = x + self.pos_encoder[0](x)
+            batch_class_token = self.class_token[i].expand(n, -1, -1)
+            x = torch.cat([batch_class_token, x], dim=1)
 
-        x = x + self.pos_embedding[i]
+            x = x + self.pos_embedding[i]
         return x, state
 
     def freeze(self, freeze):
@@ -269,7 +269,7 @@ class ViT(torch.nn.Module):
         x, _ = self._process_input(x, self.patch_sizes[0], 0, permutation)
         if permutation is not None:
             mask = permutation == self.n_patch-1
-            mask = torch.cat([torch.zeros((mask.shape[0], 1), device=mask.device), mask], dim =1)
+            mask = torch.cat([torch.zeros((mask.shape[0], 1), device=mask.device), mask], dim=1)
         x = [x]
         for i in range(len(self.parallel_encoders)-1):
             x = self.fusion_layers[i](self.parallel_encoders[i](x, mask))
