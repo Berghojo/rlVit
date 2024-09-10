@@ -71,8 +71,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         agent = agent.to(device)
         agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=True)
-        pretrain_optimizer = optim.Adam(agent.parameters(), lr=1e-3)
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-6)
+
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
+        agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-3)
 
     else:
         agent = None
@@ -104,7 +105,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(model_optimizer, max_epochs)
+    scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, 1e-3)
     scaler = GradScaler()
 
     best_acc = 0
@@ -112,26 +113,29 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     for epoch in range(max_epochs):
         if reinforce:
             if epoch == pretraining_duration:
+                for g in agent_optimizer.param_groups:
+                    g['lr'] = 1e-4
                 if agent is not None:
                     torch.save(agent.state_dict(), f"saves/base_{model_name}_agent_@{epoch}.pth")
             if epoch < pretraining_duration:
 
                 loss, acc = train_rl(train_loader, device, model,
-                                     pretrain_optimizer, scaler, agent,
+                                     agent_optimizer, scaler, agent,
                                      train_agent=True, verbose=verbose, pretrain=True, use_baseline=use_baseline)
                 summarize(writer, "train", epoch, acc, loss)
+                agent_scheduler.step()
             else:
                 if alternate:
                     loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
                                           train_agent=False,
                                           verbose=verbose)
-
+                    scheduler.step()
                     summarize(writer, "train", epoch, acc, loss)
                 agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
                                                                                       pretrain=False, use_baseline=use_baseline)
-
+                agent_scheduler.step()
 
                 summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
@@ -142,6 +146,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
             summarize(writer, "train", epoch, acc, loss)
+            scheduler.step()
         if epoch >= start_logging:
             class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
             print('[Test] ACC: {:.4f} '.format(accuracy))
@@ -155,7 +160,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
             print("saving agent")
             torch.save(agent.state_dict(), f"saves/best_{model_name}_agent_@{launch_time}.pth")
 
-            scheduler.step()
+
     cleanup()
 
 def summarize(writer, split, epoch, acc, loss=None):
@@ -285,7 +290,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     counter = 0
     if pretrain:
 
-        criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.4, reduction="none")
+        criterion = torch.nn.KLDivLoss(label_smoothing=0.4, reduction="none")
         batch_count = 0
         for inputs, labels in tqdm(loader, disable=not verbose):
             batch_count += 1
