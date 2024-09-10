@@ -111,6 +111,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     for epoch in range(max_epochs):
         if reinforce:
+            if epoch == pretraining_duration:
+                if agent is not None:
+                    torch.save(agent.state_dict(), f"saves/base_{model_name}_agent_@{epoch}.pth")
             if epoch < pretraining_duration:
 
                 train_rl(train_loader, device, model,
