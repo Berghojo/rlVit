@@ -116,10 +116,10 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                     torch.save(agent.state_dict(), f"saves/base_{model_name}_agent_@{epoch}.pth")
             if epoch < pretraining_duration:
 
-                train_rl(train_loader, device, model,
-                         pretrain_optimizer, scaler, agent,
-                         train_agent=True, verbose=verbose, pretrain=True, use_baseline=use_baseline)
-
+                loss, acc = train_rl(train_loader, device, model,
+                                     pretrain_optimizer, scaler, agent,
+                                     train_agent=True, verbose=verbose, pretrain=True, use_baseline=use_baseline)
+                summarize(writer, "train", epoch, acc, loss)
             else:
                 if alternate:
                     loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
