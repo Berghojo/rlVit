@@ -72,8 +72,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = agent.to(device)
         agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=True)
 
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
-        agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-3)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-3)
+        agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-2, epochs=pretraining_duration,
+                                                        steps_per_epoch=len(train_loader))
 
     else:
         agent = None
@@ -105,7 +106,8 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
-    scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, 1e-3)
+    scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, 1e-3, steps_per_epoch=len(train_loader),
+                                              epochs=max_epochs-pretraining_duration)
     scaler = GradScaler()
 
     best_acc = 0
@@ -115,8 +117,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
             if epoch == pretraining_duration:
                 for g in agent_optimizer.param_groups:
                     g['lr'] = 1e-4
+                agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-3,
+                                                                epochs=max_epochs-pretraining_duration,
+                                                                steps_per_epoch=len(train_loader))
                 if agent is not None:
-                    torch.save(agent.state_dict(), f"saves/base_{model_name}_agent_@{epoch}.pth")
+                    torch.save(agent.state_dict(), f"saves/base_{model_name}_agent_@{epoch}_{launch_time}.pth")
             if epoch < pretraining_duration:
 
                 loss, acc = train_rl(train_loader, device, model,
@@ -290,7 +295,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     counter = 0
     if pretrain:
 
-        criterion = torch.nn.KLDivLoss(label_smoothing=0.4, reduction="none")
+        criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.4, reduction="none")
         batch_count = 0
         for inputs, labels in tqdm(loader, disable=not verbose):
             batch_count += 1
@@ -313,7 +318,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             pseudo_labels = torch.arange(0, 50, device=device)
             pseudo_labels = pseudo_labels.repeat(bs, 1)
 
-            loss = criterion(actions.flatten(0, 1), pseudo_labels.flatten(0, 1))
+            loss = criterion(actions, pseudo_labels)
             loss = torch.mean(loss)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -452,7 +457,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False):
         baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
         for i in range(49):
             state = model.module.get_state(inputs, sequence).detach()
-            actions, _ = agent(state, input_state, sequence == 49)
+            actions, _ = agent(state, input_state)
             prob = torch.softmax(actions, dim=-1)
             dist = Categorical(prob)
             action = dist.sample()
@@ -482,9 +487,9 @@ def combine_to_batch(bs, inputs, labels, model, old_action):
     inputs = inputs.repeat(49, 1, 1, 1)
     subactions = []
     for i in range(49):
-        mask = torch.cat([torch.zeros((bs, i + 1)), torch.ones((bs, 49 - i - 1))], dim=-1).bool()
+        #mask = torch.cat([torch.zeros((bs, i + 1)), torch.ones((bs, 49 - i - 1))], dim=-1).bool()
         sub_action = old_action.clone()
-        sub_action[mask] = 49
+        #sub_action[mask] = 49
         subactions.append(sub_action)
     subactions = torch.cat(subactions, dim=0)
     outputs = model(inputs, subactions)
