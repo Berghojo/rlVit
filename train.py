@@ -23,6 +23,8 @@ def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
 
+    os.environ["TORCH_CPP_LOG_LEVEL"] = "NONE"
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "NONE"
     # initialize the process group
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
@@ -70,10 +72,10 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
             agent.load_state_dict(new_state_dict)
 
         agent = agent.to(device)
-        agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=True)
+        agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-3)
-        agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-2, epochs=pretraining_duration,
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
+        agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-3, epochs=pretraining_duration,
                                                         steps_per_epoch=len(train_loader))
 
     else:
@@ -90,13 +92,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model.load_state_dict(new_state_dict)
         model = model.to(rank)
-        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
+        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
         # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent if agent else None, verbose=verbose)
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-
-        #summarize(writer, "test", -1, accuracy)
+        #
+        # summarize(writer, "test", -1, accuracy)
     else:
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
             10, pretrained)
@@ -120,27 +122,30 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                 agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-3,
                                                                 epochs=max_epochs-pretraining_duration,
                                                                 steps_per_epoch=len(train_loader))
-                if agent is not None:
-                    torch.save(agent.state_dict(), f"saves/base_{model_name}_agent_@{epoch}_{launch_time}.pth")
+                print("changed lr")
             if epoch < pretraining_duration:
 
                 loss, acc = train_rl(train_loader, device, model,
                                      agent_optimizer, scaler, agent,
-                                     train_agent=True, verbose=verbose, pretrain=True, use_baseline=use_baseline)
+                                     train_agent=True, verbose=verbose, pretrain=True, use_baseline=use_baseline,
+                                     scheduler=agent_scheduler)
+                torch.save(agent.state_dict(), f"saves/base_{model_name}_agent_@{epoch}.pth")
                 summarize(writer, "train", epoch, acc, loss)
-                agent_scheduler.step()
+
             else:
                 if alternate:
                     loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
                                           train_agent=False,
-                                          verbose=verbose)
-                    scheduler.step()
+                                          verbose=verbose, scheduler=scheduler)
+
                     summarize(writer, "train", epoch, acc, loss)
                 agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
-                                                                                      pretrain=False, use_baseline=use_baseline)
-                agent_scheduler.step()
+                                                                                      pretrain=False,
+                                                                                      use_baseline=use_baseline,
+                                                                                      scheduler = agent_scheduler)
+
 
                 summarize_agent(writer, "train_agent", epoch, cum_reward,  value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
@@ -151,7 +156,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
             summarize(writer, "train", epoch, acc, loss)
-            scheduler.step()
+
         if epoch >= start_logging:
             class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent, verbose=verbose)
             print('[Test] ACC: {:.4f} '.format(accuracy))
@@ -194,19 +199,22 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             labels = labels.to(device)
             if agent is not None:
                 bs, _, _, _ = inputs.shape
-                start = torch.arange(-1, 49, device=labels.device)
-                start = start.repeat(bs, 1)
-                start[:, 0] = 50
-                image = model.module.get_state(inputs, start)
-                actions, _ = agent(image)
-                actions = torch.softmax(actions, dim=-1)
-                action = torch.argmax(actions, dim=-1)
-                start[:, 1:] = action[:, :-1]
 
-                outputs = model(inputs, start[:, 1:])
+                sequence = torch.full((bs, 50), 49, dtype=torch.long, device=inputs.device)
+                sequence[:, 0] = 50
+                input_state = torch.arange(0, 49, device=inputs.device)
+                input_state = input_state.repeat(bs, 1)
+                input_state = model.module.get_state(inputs, input_state).detach()
+                for i in range(49):
+                    state = model.module.get_state(inputs, sequence).detach()
+                    actions, _ = agent(state, input_state)
+                    prob = torch.softmax(actions, dim=-1)
+                    action = torch.argmax(prob, dim=-1)
+                    sequence[:, i + 1] = action[:, i]
+                outputs = model(inputs, sequence[:, 1:])
             else:
                 outputs = model(inputs, None)
-            _, preds = torch.max(outputs, 1)
+            probs, preds = torch.max(outputs, 1)
 
             for i, boolean in enumerate(preds == labels):
                 overall[preds[i]] += 1
@@ -272,7 +280,8 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
     return running_loss, correct / n_items
 
 
-def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, pretrain=False, use_baseline=False):
+def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbose=True, pretrain=False, use_baseline=False,
+             scheduler=None):
     criterion = torch.nn.CrossEntropyLoss(reduction="none")
 
     if train_agent:
@@ -294,7 +303,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
     counter = 0
     if pretrain:
-
+        value_criterion = torch.nn.MSELoss(reduction="mean")
         criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.4, reduction="none")
         batch_count = 0
         for inputs, labels in tqdm(loader, disable=not verbose):
@@ -309,29 +318,34 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             start[:, 0] = 50
             with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                 state = model.module.get_state(inputs, start).detach()
-                actions, _ = agent(state)
+                actions, values = agent(state)
                 a = torch.softmax(actions, dim=-1)
                 p, a = torch.max(a, dim=-1)
                 # for n, e in enumerate(a):
                 #     print(e)
                 #     print(p[n])
+            with torch.no_grad():
+                outputs = model(inputs, a[:, :-1])
+            probs, preds = torch.max(outputs, -1)
+            rewards = (preds == labels).type(torch.half)
+            rewards = rewards.repeat_interleave(50).reshape(bs, -1)
+            value_loss = value_criterion(values.squeeze(), rewards)
+
             pseudo_labels = torch.arange(0, 50, device=device)
             pseudo_labels = pseudo_labels.repeat(bs, 1)
+            loss = criterion(actions.flatten(0, 1), pseudo_labels.flatten(0, 1)).mean() + value_loss
 
-            loss = criterion(actions, pseudo_labels)
-            loss = torch.mean(loss)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-
+            scheduler.step()
             running_loss += loss.item() * inputs.size(0)
 
-            with torch.no_grad():
 
-                outputs = model(inputs, a[:, :-1])
-            probs, preds = torch.max(outputs, -1)
+
             correct += torch.sum(preds == labels)
             n_items += inputs.size(0)
+
         print("running_loss: ", running_loss)
         return running_loss, correct / n_items
     if train_agent:
@@ -387,6 +401,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
+            scheduler.step()
             n_items += inputs.size(0)
             running_loss += loss.item()
             p_loss += policy_loss.item()
@@ -432,8 +447,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
+            scheduler.step()
             if counter % 100 == 99:
-                print(torch.max(probs[0], dim=-1))
+                print(torch.max(p[0], dim=-1))
                 print(f'Loss {loss}')
                 acc = correct / n_items
                 print(acc)
