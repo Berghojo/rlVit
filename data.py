@@ -6,7 +6,7 @@ from torch.utils.data.distributed import DistributedSampler
 import torch
 import numpy as np
 class Data(Dataset):
-    def __init__(self, size, split=None, imagenet=False):
+    def __init__(self, size, split=None, imagenet=True):
         normalize = transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)) if imagenet else transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         self.transform = transforms.Compose(
             [
