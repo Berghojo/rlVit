@@ -66,8 +66,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
             mydic = torch.load(agent_model, map_location="cpu")
             ignore_list = []
             for k, v in mydic.items():
-                name = k[7:]  # remove `module.`
-                if name not in ignore_list and k[:7] == "module.":
+                name = k[7:] if k[:7] == "module." else k
+                # remove `module.`x
+                if name not in ignore_list:
                     new_state_dict[name] = v
             agent.load_state_dict(new_state_dict)
 
@@ -86,9 +87,11 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         new_state_dict = OrderedDict()
         ignore_list = ["dark_patch"]
         for k, v in mydic.items():
-            name = k[7:]  # remove `module.`x
-            if name not in ignore_list and k[:7] == "module.":
+            name = k[7:]  if k[:7] == "module." else k
+                 # remove `module.`x
+            if name not in ignore_list:
                 new_state_dict[name] = v
+
 
         model.load_state_dict(new_state_dict)
         model = model.to(rank)
@@ -261,7 +264,7 @@ def train_vit(loader, device, model, optimizer, scaler, verbose=True):
         inputs = inputs.to(device)
         labels = labels.type(torch.LongTensor)
         labels = labels.to(device)
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         with torch.autocast(device_type='cuda', dtype=torch.float16):
             outputs = model(inputs, None)
             _, preds = torch.max(outputs, 1)
@@ -312,7 +315,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
             bs, _, _, _ = inputs.shape
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             start = torch.arange(-1, 49, device=device)
             start = start.repeat(bs, 1)
             start[:, 0] = 50
@@ -360,7 +363,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             bs, _, _, _ = inputs.shape
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             preds, prob, probs, rewards, action, old_action, initial_state = rl_training(agent, bs, inputs, labels, model, correct_only=not use_baseline)
             cum_sum += torch.sum(rewards)
             old_action = old_action[:, :-1]
@@ -421,7 +424,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             bs, _, _, _ = inputs.shape
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             bs, _, _, _ = inputs.shape
             with torch.no_grad():
                 start = torch.arange(-1, 49, device=labels.device)

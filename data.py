@@ -60,9 +60,9 @@ def get_loader(size, bs, world_size=1, rank=0):
     train_sampler = DistributedSampler(train_data, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     test_sampler = DistributedSampler(test_data, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=bs,
-                                               shuffle=False, num_workers=6, sampler=train_sampler, pin_memory=False)
+                                               shuffle=False, num_workers=6, sampler=train_sampler, pin_memory=True)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=bs,
-                                             shuffle=False, num_workers=6, sampler=test_sampler, pin_memory=False)
+                                             shuffle=False, num_workers=6, sampler=test_sampler, pin_memory=True)
 
     return train_loader, test_loader
 
