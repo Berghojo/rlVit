@@ -44,7 +44,7 @@ def set_deterministic(seed=2408):
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None,
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False, alternate=True,
           rank=0, world_size=1):
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
     set_deterministic()
@@ -75,9 +75,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = agent.to(device)
         agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
-        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=1e-3)
         if (pretraining_duration > 0):
-            agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-3, epochs=pretraining_duration,
+            agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-2, epochs=pretraining_duration,
                                                             steps_per_epoch=len(train_loader))
 
     else:
