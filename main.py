@@ -36,6 +36,11 @@ if __name__ == "__main__":
     parser.add_argument('--alternate', action='store_true')
     parser.add_argument('--no-alternate', dest='alternate', action='store_false')
     parser.set_defaults(alternate=True)
+
+    parser.add_argument('--pretrained', action='store_true')
+    parser.add_argument('--no-pretrained', dest='alternate', action='store_false')
+    parser.set_defaults(pretrained=True)
+
     args = parser.parse_args()
 
     world_size = torch.cuda.device_count()

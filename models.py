@@ -203,7 +203,13 @@ class ViT(torch.nn.Module):
             for e, s in enumerate(self.stages):
                 end += s[0]
                 print("Copying Layers: ", start, end)
-                self.parallel_encoders[e].encoder_blocks[0] = deepcopy(backbone.encoder.layers[start:end])
+                print(len(self.parallel_encoders[e].encoder_blocks[0]))
+                temp = deepcopy(backbone.encoder.layers[start:end])
+                for enc in range(len(self.parallel_encoders[e].encoder_blocks[0])):
+                    self.parallel_encoders[e].encoder_blocks[0][enc].ln_1 = temp[enc].ln_1
+                    self.parallel_encoders[e].encoder_blocks[0][enc].self_attention = temp[enc].self_attention
+                    self.parallel_encoders[e].encoder_blocks[0][enc].mlp = temp[enc].mlp
+                    self.parallel_encoders[e].encoder_blocks[0][enc].ln_2 = temp[enc].ln_2
                 start += s[0]
             self.pos_embedding[0] = deepcopy(backbone.encoder.pos_embedding)
             self.proj_layers[0] = deepcopy(backbone.conv_proj)

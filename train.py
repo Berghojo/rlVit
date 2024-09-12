@@ -41,10 +41,10 @@ def set_deterministic(seed=2408):
         "CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # https://docs.nvidia.com/cuda/cublas/index.html#cublasApi_reproducibility
 
 
-def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
+def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None,
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False, alternate=True,
           rank=0, world_size=1):
-    #torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
     set_deterministic()
@@ -76,8 +76,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
         agent_optimizer = optim.Adam(agent.parameters(), lr=1e-4)
-        agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-3, epochs=pretraining_duration,
-                                                        steps_per_epoch=len(train_loader))
+        if (pretraining_duration > 0):
+            agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, 1e-3, epochs=pretraining_duration,
+                                                            steps_per_epoch=len(train_loader))
 
     else:
         agent = None
@@ -96,18 +97,23 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model.load_state_dict(new_state_dict)
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
-
-        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent if agent else None, verbose=verbose)
+        # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent if agent else None,
+        #                                     verbose=verbose)
         # print('[Test] ACC: {:.4f} '.format(accuracy))
         # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
         #
         # summarize(writer, "test", -1, accuracy)
     else:
-        model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce) if not base_vit else BaseVit(
-            10, pretrained)
+        model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
+    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent if agent else None,
+                                        verbose=verbose)
+    print('[Test] ACC: {:.4f} '.format(accuracy))
+    print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+
+    summarize(writer, "test", -1, accuracy)
 
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
