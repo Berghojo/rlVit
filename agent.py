@@ -12,7 +12,6 @@ class SimpleAgent(nn.Module):
     def __init__(self, n_patches):
         super(SimpleAgent, self).__init__()
         self.n_actions = n_patches+1
-        self.batch_norm = nn.BatchNorm1d(768)
         self.action = nn.Linear(in_features=768, out_features=self.n_actions)
         self.value = nn.Linear(in_features=768, out_features=1)
         decoder_layer = nn.TransformerDecoderLayer(d_model=768, nhead=8, norm_first=True, batch_first=True)
@@ -31,8 +30,7 @@ class SimpleAgent(nn.Module):
         if memory is None:
             memory = state
         t_mask = None #torch.nn.Transformer.generate_square_subsequent_mask(seq_len, device=state.device)
-        state = self.batch_norm(state.transpose(1, 2)).transpose(1, 2)
-        memory = self.batch_norm(memory.transpose(1, 2)).transpose(1, 2)
+
         x = self.decoder(state, memory, tgt_key_padding_mask=mask, tgt_is_causal=False, tgt_mask=t_mask)
 
         actor = self.action(x)

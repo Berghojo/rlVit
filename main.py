@@ -2,6 +2,7 @@ import argparse
 from train import train
 import torch.multiprocessing as mp
 import torch
+import os
 def main(rank, world_size, args):
     train(args.run_name, args.nclasses, args.nepochs, args.base_path, reinforce=args.use_rl,
           verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,
@@ -44,7 +45,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     world_size = torch.cuda.device_count()
-
+    os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "OFF"
     print(args)
     mp.spawn(
         main,
