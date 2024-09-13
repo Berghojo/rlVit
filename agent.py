@@ -2,10 +2,42 @@ from torch import nn
 from torchvision.models import resnet18
 import torch
 import random
+from torch import Tensor, device, dtype
 from collections import namedtuple, deque
 
 import numpy as np
 
+
+class SingleActionAgent(nn.Module):
+    def __init__(self, n_patches):
+        super(SingleActionAgent, self).__init__()
+        self.conv = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
+        self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
+        self.fc = nn.Linear(35 * 35 * 32, 256)
+        self.action = nn.Linear(256, n_patches+1)
+        self.value = nn.Linear(256, 1)
+        self.relu = nn.ReLU()
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+    def freeze(self, freeze):
+        print("Setting Agent Training to: ", freeze)
+        for param in self.parameters():
+            param.requires_grad = freeze
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.conv(x)
+        x = self.conv_2(x)
+        x = x.flatten(1)
+        x = self.relu(self.fc(x))
+
+        action = self.action(x)
+        value = self.value(x)
+
+        return action, value
 
 class SimpleAgent(nn.Module):
 

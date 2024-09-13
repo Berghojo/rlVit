@@ -235,9 +235,10 @@ class ViT(torch.nn.Module):
         n_w = w // p
 
         # (n, c, h, w) -> (n, hidden_dim, n_h, n_w)
-
+        dark = torch.zeros_like(x)
         x = self.proj_layers[i](x)
-
+        dark_patch = self.proj_layers[i](dark)
+        dark_patch = dark_patch.reshape(n, self.hidden_dims[i], n_h * n_w)
         # (n, hidden_dim, n_h, n_w) -> (n, hidden_dim, (n_h * n_w))
         x = x.reshape(n, self.hidden_dims[i], n_h * n_w)
 
@@ -247,13 +248,11 @@ class ViT(torch.nn.Module):
         # embedding dimension
 
         x = x.permute(0, 2, 1)
+        dark_patch = dark_patch.permute(0, 2, 1)
         state = None
         if permutation is not None:
-            dark_patch = torch.zeros(1, 1, self.hidden_dims[0], device=x.device).expand(n, -1, -1).detach()
-            start_patch = torch.full((1, 1, self.hidden_dims[0]), -1, device=x.device).expand(n, -1, -1).detach()
-            x = torch.cat([x, dark_patch, start_patch], dim=1)
+            x = torch.cat([x, dark_patch], dim=1)
             expanded_permutations = permutation.unsqueeze(-1).expand(-1, -1, 768).detach()
-
             x = torch.gather(x, 1, expanded_permutations)
             state = x
 

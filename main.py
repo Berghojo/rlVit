@@ -40,13 +40,12 @@ if __name__ == "__main__":
 
     parser.add_argument('--pretrained', action='store_true')
     parser.add_argument('--no-pretrained', dest='alternate', action='store_false')
-    parser.set_defaults(pretrained=True)
+    parser.set_defaults(pretrained=False)
 
     args = parser.parse_args()
 
     world_size = torch.cuda.device_count()
-    os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
-    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "OFF"
+
     print(args)
     mp.spawn(
         main,
