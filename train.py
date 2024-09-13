@@ -215,16 +215,15 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
                 overall[preds[i]] += 1
                 if boolean:
                     correct[preds[i]] += 1
-            break
-        if agent is not None:
-            test_input, _ = next(iter(loader))
-            test_input = torch.unsqueeze(test_input[:1], 0)
-
-            sequence = generate_max_agent(agent, bs, test_input, patches_per_side)
-            f = open("permutation.txt", "a")
-
-            print(list(sequence[0]), file=f)
-            #print(list(probs), file=f)
+        # if agent is not None:
+        #     test_input, _ = next(iter(loader))
+        #     test_input = torch.unsqueeze(test_input[:1], 0)
+        #
+        #     sequence = generate_max_agent(agent, bs, test_input, patches_per_side)
+        #     f = open("permutation.txt", "a")
+        #
+        #     print(list(sequence[0]), file=f)
+        #     #print(list(probs), file=f)
 
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
     accuracy = sum(correct) / sum(overall)
