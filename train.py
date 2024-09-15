@@ -221,7 +221,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             sequence = generate_max_agent(agent, 1, test_input, patches_per_side)
             f = open("permutation.txt", "a")
 
-            print(list(sequence[0]), file=f)
+            print(sequence[0], file=f)
             #print(list(probs), file=f)
 
     class_accuracy = torch.tensor(correct) / torch.tensor(overall)
