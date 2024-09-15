@@ -14,6 +14,7 @@ class SingleActionAgent(nn.Module):
         self.conv = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
         self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
         self.fc = nn.Linear(35 * 35 * 32, 256)
+        self.fc2 = nn.Linear(256, 256)
         self.action = nn.Linear(256, n_patches+1)
         self.value = nn.Linear(256, 1)
         self.relu = nn.ReLU()
@@ -33,7 +34,7 @@ class SingleActionAgent(nn.Module):
         x = self.conv_2(x)
         x = x.flatten(1)
         x = self.relu(self.fc(x))
-
+        x = self.relu(self.fc2(x))
         action = self.action(x)
         value = self.value(x)
 
