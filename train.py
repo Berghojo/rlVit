@@ -509,7 +509,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
 
         if bs == 1:
             image = unnormalize(state)
-            og_image = unnormalize(input_small)
+
             image[0, :, r, c:c + size] = 0
             image[0, :, r + size - 1, c:c + size] = 0
             image[0, :, r:r + size, c] = 0
@@ -521,8 +521,9 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
             plt.imshow(image[0].permute(1, 2, 0).cpu())
             plt.xlabel(action[0].item())
             plt.savefig(f"imgs/{i}_max__new.jpg")
-            plt.imshow(og_image[0].permute(1, 2, 0).cpu())
-            plt.savefig(f"imgs/{i}_max_og.jpg")
+    og_image = unnormalize(input_small)
+    plt.imshow(og_image[0].permute(1, 2, 0).cpu())
+    plt.savefig(f"imgs/max_og.jpg")
 
 
     return sequence
