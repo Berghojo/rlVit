@@ -334,25 +334,27 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 sequence[:, random_idx] = action
 
             for img in range(bs):
-                a = action[img]
-                r = (a // patches_per_side) * size
-                c = (a % patches_per_side) * size
-                state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
 
-                if batch_count % 1000 == 0:
-                    image = unnormalize(state)
-                    image[img, :, r, c:c + size] = 0
-                    image[img, :, r + size - 1, c:c + size] = 0
-                    image[img, :, r:r + size, c] = 0
-                    image[img, :, r:r + size, c + size - 1] = 0
-                    image[img, 0, r, c:c + size] = 1
-                    image[img, 0, r + size - 1, c:c + size] = 1
-                    image[img, 0, r:r + size, c] = 1
-                    image[img, 0, r:r + size, c + size - 1] = 1
-                    plt.imshow(image[img].permute(1, 2, 0).cpu())
-                    plt.xlabel(action[img].item())
-                    plt.ylabel(pseudo_labels[img].item())
-                    plt.savefig(f"imgs/{img}.jpg")
+                a = action[img]
+                if a != 49:
+                    r = (a // patches_per_side) * size
+                    c = (a % patches_per_side) * size
+                    state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+
+                    if batch_count % 1000 == 0:
+                        image = unnormalize(state)
+                        image[img, :, r, c:c + size] = 0
+                        image[img, :, r + size - 1, c:c + size] = 0
+                        image[img, :, r:r + size, c] = 0
+                        image[img, :, r:r + size, c + size - 1] = 0
+                        image[img, 0, r, c:c + size] = 1
+                        image[img, 0, r + size - 1, c:c + size] = 1
+                        image[img, 0, r:r + size, c] = 1
+                        image[img, 0, r:r + size, c + size - 1] = 1
+                        plt.imshow(image[img].permute(1, 2, 0).cpu())
+                        plt.xlabel(action[img].item())
+                        plt.ylabel(pseudo_labels[img].item())
+                        plt.savefig(f"imgs/{img}.jpg")
 
             with torch.no_grad():
                 outputs = model(inputs, sequence)
@@ -512,9 +514,10 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
         values[:, i] = value.squeeze()
         for img in range(bs):
             a = action[img]
-            r = (a // patches_per_side) * size
-            c = (a % patches_per_side) * size
-            state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+            if a != 49:
+                r = (a // patches_per_side) * size
+                c = (a % patches_per_side) * size
+                state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
 
         if bs == 1:
             image = unnormalize(state)
@@ -567,9 +570,10 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
             values[:, i] = value.squeeze()
             for img in range(bs):
                 a = action[img]
-                r = (a // patches_per_side) * size
-                c = (a % patches_per_side) * size
-                state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+                if a != 49:
+                    r = (a // patches_per_side) * size
+                    c = (a % patches_per_side) * size
+                    state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states.append(state)
             outputs = model(inputs, sequence)
             probs, preds = torch.max(outputs, -1)
