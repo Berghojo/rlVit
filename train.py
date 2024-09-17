@@ -49,7 +49,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False,
           alternate=True,
           rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4):
-    #torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
     set_deterministic()
@@ -341,20 +341,20 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     c = (a % patches_per_side) * size
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
 
-                    if batch_count % 1000 == 0:
-                        image = unnormalize(state)
-                        image[img, :, r, c:c + size] = 0
-                        image[img, :, r + size - 1, c:c + size] = 0
-                        image[img, :, r:r + size, c] = 0
-                        image[img, :, r:r + size, c + size - 1] = 0
-                        image[img, 0, r, c:c + size] = 1
-                        image[img, 0, r + size - 1, c:c + size] = 1
-                        image[img, 0, r:r + size, c] = 1
-                        image[img, 0, r:r + size, c + size - 1] = 1
-                        plt.imshow(image[img].permute(1, 2, 0).cpu())
-                        plt.xlabel(action[img].item())
-                        plt.ylabel(pseudo_labels[img].item())
-                        plt.savefig(f"imgs/{img}.jpg")
+                    # if batch_count % 1000 == 0:
+                    #     image = unnormalize(state)
+                    #     image[img, :, r, c:c + size] = 0
+                    #     image[img, :, r + size - 1, c:c + size] = 0
+                    #     image[img, :, r:r + size, c] = 0
+                    #     image[img, :, r:r + size, c + size - 1] = 0
+                    #     image[img, 0, r, c:c + size] = 1
+                    #     image[img, 0, r + size - 1, c:c + size] = 1
+                    #     image[img, 0, r:r + size, c] = 1
+                    #     image[img, 0, r:r + size, c + size - 1] = 1
+                    #     plt.imshow(image[img].permute(1, 2, 0).cpu())
+                    #     plt.xlabel(action[img].item())
+                    #     plt.ylabel(pseudo_labels[img].item())
+                    #     plt.savefig(f"imgs/{img}.jpg")
 
             with torch.no_grad():
                 outputs = model(inputs, sequence)
@@ -384,7 +384,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         v_loss = 0
         k_step = 10
         pos_reward = 1
-        neg_reward = 0
+        neg_reward = -0.01
         gamma = 0.9
 
 
@@ -416,12 +416,12 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     sequence = action_sequence[:, im]
                     actions, value = agent(old_states)
                     actions = torch.softmax(actions, dim=-1)
+
                     r = rewards[:, im]
                     cum_sum += torch.sum(r)
                     state_action_probs = actions.gather(1, sequence.unsqueeze(-1))
 
 
-                    discounted_rewards = torch.zeros_like(r, device=device)
 
                     if new_states is not None:
 
@@ -433,14 +433,13 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                                                                         dim=-1))
 
                         mul = r_and_v * gamma_tensor
-
                         discounted_rewards = torch.sum(mul, dim=-1)
                     else:
                         r_and_v = rewards[:, im:]
                         discounted_rewards = torch.sum(r_and_v * gamma_tensor[:, :49 - im], dim=-1)
 
                 loss, policy_loss, value_loss = loss_func(state_action_probs.squeeze(), value.squeeze(),
-                                                          discounted_rewards.flatten())
+                                                          discounted_rewards)
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
@@ -452,7 +451,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 correct += torch.sum(preds == labels)
             counter += 1
             if counter % 2 == 0:
-                #print(torch.argmax(model_probs[0], dim=-1))
+                print(torch.max(actions[0], dim=-1))
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
                 print(acc)
@@ -519,20 +518,20 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
                 c = (a % patches_per_side) * size
                 state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
 
-        if bs == 1:
-            image = unnormalize(state)
-
-            image[0, :, r, c:c + size] = 0
-            image[0, :, r + size - 1, c:c + size] = 0
-            image[0, :, r:r + size, c] = 0
-            image[0, :, r:r + size, c + size - 1] = 0
-            image[0, 0, r, c:c + size] = 1
-            image[0, 0, r + size - 1, c:c + size] = 1
-            image[0, 0, r:r + size, c] = 1
-            image[0, 0, r:r + size, c + size - 1] = 1
-            plt.imshow(image[0].permute(1, 2, 0).cpu())
-            plt.xlabel(action[0].item())
-            plt.savefig(f"imgs/{i}_max__new.jpg")
+        # if bs == 1:
+        #     image = unnormalize(state)
+        #
+        #     image[0, :, r, c:c + size] = 0
+        #     image[0, :, r + size - 1, c:c + size] = 0
+        #     image[0, :, r:r + size, c] = 0
+        #     image[0, :, r:r + size, c + size - 1] = 0
+        #     image[0, 0, r, c:c + size] = 1
+        #     image[0, 0, r + size - 1, c:c + size] = 1
+        #     image[0, 0, r:r + size, c] = 1
+        #     image[0, 0, r:r + size, c + size - 1] = 1
+        #     plt.imshow(image[0].permute(1, 2, 0).cpu())
+        #     plt.xlabel(action[0].item())
+        #     plt.savefig(f"imgs/{i}_max__new.jpg")
 
     return sequence
 
