@@ -290,7 +290,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         batch_count = 0
         resize = Resize(35)
         value_criterion = torch.nn.MSELoss(reduction="mean")
-        criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.4)
+        criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.7)
         for inputs, labels in tqdm(loader, disable=not verbose):
 
             optimizer.zero_grad(set_to_none=True)
@@ -393,8 +393,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             inputs = inputs.to(device)
             bs, _, _, _ = inputs.shape
-            gamma_tensor = torch.tensor([gamma ** k for k in range(k_step + 1)], device=device)
-            gamma_tensor = gamma_tensor.repeat(bs, 1)
+
+
 
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
@@ -406,50 +406,114 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             rewards[rewards > 0] = pos_reward
             rewards[rewards <= 0] = neg_reward
 
-            for im in range(49):
+            resize = Resize(35)
+            patches_per_side = 7
+            bs = inputs.shape[0]
+
+            input_small = resize(inputs)
+            state = torch.zeros_like(input_small, device=inputs.device)
+            mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
+            std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
+            normalize = Normalize(mean=mean, std=std)
+            state = normalize(state)
+
+
+            rewards = torch.zeros((bs, k_step), device=inputs.device)
+            og_baseline = model(inputs, None).detach()
+            baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+            gamma_tensor = torch.zeros((bs, k_step), device=device)
+            old_actions = [None] * k_step
+            old_values= [None] * k_step
+            gamma_tensor[:, 0] = gamma ** 0
+            sequence = torch.full((bs, 49), 49, device=inputs.device, dtype=torch.long)
+            sequence_probs = torch.zeros((bs, 49, 50), device=inputs.device)
+            values = torch.zeros((bs, k_step), device=inputs.device)
+            size = state.shape[2] // patches_per_side
+
+            for step in range(49):
+
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                    logits, value = agent(state.detach())
+                    action_probs = torch.softmax(logits, dim=-1)
+                    dist = Categorical(action_probs)
+                    action = dist.sample()
+                    sequence_probs[:, step] = action_probs
+                    sequence[:, step] = action
+                    values[:, step % k_step] = value.squeeze()
+                if step < k_step:
+                    gamma_tensor[:, 0] = gamma ** step
+                else:
 
-                    old_states = states[im]
+                    finished = step % k_step
 
-                    new_states = states[im + k_step] if im + k_step < len(states) else None
+                    discounted_rewards = rewards[:, finished]
+                    discounted_rewards += value.squeeze().detach() * (gamma ** k_step)
+                    old_logits = old_actions[finished]
+                    old_value = old_values[finished]
+                    old_action = sequence[:, step-k_step]
 
-                    sequence = action_sequence[:, im]
-                    actions, value = agent(old_states)
-                    actions = torch.softmax(actions, dim=-1)
-                    r = rewards[:, im]
-                    cum_sum += torch.sum(r)
-                    state_action_probs = actions.gather(1, sequence.unsqueeze(-1))
+                    old_probs = torch.softmax(old_logits, dim=-1)
+                    old_state_action_probs = old_probs.gather(1, old_action.unsqueeze(-1))
+                    loss, policy_loss, value_loss = loss_func(old_state_action_probs.squeeze(), old_value.squeeze(),
+                                                              discounted_rewards.flatten())
+
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                    scheduler.step()
+                    n_items += inputs.size(0)
+                    running_loss += loss.item()
+                    p_loss += policy_loss.item()
+                    v_loss += value_loss.item()
+                    rewards[:, finished] = 0
+
+                old_actions[step % k_step] = logits
+                old_values[step % k_step] = value
+                for img in range(bs):
+                    a = action[img]
+                    if a != 49:
+                        r = (a // patches_per_side) * size
+                        c = (a % patches_per_side) * size
+                        state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+
+                outputs = model(inputs, sequence)
+                probs, preds = torch.max(outputs, -1)
+                if not use_baseline:
+                    reward = (preds == labels).long().squeeze()
+
+                else:
+                    normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+
+                    reward = (normal - baseline).squeeze()
+                    # reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
+
+                cum_sum += torch.sum(reward)
+                reward = reward.unsqueeze(1).expand((-1, 10))
+
+                rewards += reward * gamma_tensor # [1, 0, 0, 0, 0, 0, 0, 0]
+                gamma_tensor = torch.roll(gamma_tensor, 1, -1)
+                if step == 48:
+                    for finished in range(10):
+
+                        discounted_rewards = rewards[:, finished]
+                        old_logits = old_actions[finished]
+                        old_value = old_values[finished]
+                        old_action = sequence[:, step - k_step]
+                        old_probs = torch.softmax(old_logits, dim=-1)
+                        old_state_action_probs = old_probs.gather(1, old_action.unsqueeze(-1))
+                        loss, policy_loss, value_loss = loss_func(old_state_action_probs.squeeze(), old_value.squeeze(),
+                                                                  discounted_rewards.flatten())
+                        scaler.scale(loss).backward()
+                        scaler.step(optimizer)
+                        scaler.update()
+                        scheduler.step()
+                        n_items += inputs.size(0)
+                        running_loss += loss.item()
+                        p_loss += policy_loss.item()
+                        v_loss += value_loss.item()
 
 
-                    discounted_rewards = torch.zeros_like(r, device=device)
-
-                    if new_states is not None:
-
-                        with torch.no_grad():
-                            _, next_state_values = agent(new_states)
-
-                        r_and_v = (torch.concat([rewards[:, im: im + k_step],
-                                                                         next_state_values],
-                                                                        dim=-1))
-
-                        mul = r_and_v * gamma_tensor
-
-                        discounted_rewards = torch.sum(mul, dim=-1)
-                    else:
-                        r_and_v = rewards[:, im:]
-                        discounted_rewards = torch.sum(r_and_v * gamma_tensor[:, :49 - im], dim=-1)
-
-                loss, policy_loss, value_loss = loss_func(state_action_probs.squeeze(), value.squeeze(),
-                                                          discounted_rewards.flatten())
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                scheduler.step()
-                n_items += inputs.size(0)
-                running_loss += loss.item()
-                p_loss += policy_loss.item()
-                v_loss += value_loss.item()
-                correct += torch.sum(preds == labels)
+            correct += torch.sum(preds == labels)
             counter += 1
             if counter % 2 == 0:
                 #print(torch.argmax(model_probs[0], dim=-1))

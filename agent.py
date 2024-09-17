@@ -31,11 +31,16 @@ class SingleActionAgent(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.conv(x)
+
         x = self.conv_2(x)
+
         x = x.flatten(1)
         x = self.relu(self.fc(x))
+
         x = self.relu(self.fc2(x))
+
         action = self.action(x)
+
         value = self.value(x)
 
         return action, value
