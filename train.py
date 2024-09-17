@@ -49,7 +49,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False,
           alternate=True,
           rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4):
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
     set_deterministic()
@@ -450,7 +450,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 v_loss += value_loss.item()
                 correct += torch.sum(preds == labels)
             counter += 1
-            if counter % 2 == 0:
+            if counter % 100 == 0:
                 print(torch.max(actions[0], dim=-1))
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
