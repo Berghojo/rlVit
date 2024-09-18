@@ -77,9 +77,8 @@ class CustomLoss(nn.Module):
 
 
         advantage = discounted_rewards - values
-
         #clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
-        clipped_policy_per_action = torch.clip(policy_per_action, 1e-5, 1 - 1e-5)
+        clipped_policy_per_action = torch.clip(policy_per_action, 1e-7, 1 - 1e-7)
 
 
         value_loss = torch.mean(advantage ** 2)

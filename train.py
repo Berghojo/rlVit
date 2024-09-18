@@ -107,11 +107,12 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
-    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
+    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent,
     #                                     verbose=verbose)
     # print('[Test] ACC: {:.4f} '.format(accuracy))
     # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
     #
+
     # summarize(writer, "test", -1, accuracy)
 
     model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
@@ -384,7 +385,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         v_loss = 0
         k_step = 10
         pos_reward = 1
-        neg_reward = -0.01
+        neg_reward = 0
         gamma = 0.9
 
 
@@ -394,7 +395,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             inputs = inputs.to(device)
             bs, _, _, _ = inputs.shape
             gamma_tensor = torch.tensor([gamma ** k for k in range(k_step + 1)], device=device)
-
+            gamma_tensor = gamma_tensor.repeat(bs, 1)
 
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
@@ -404,42 +405,43 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                                                                                              correct_only=not use_baseline)
             rewards[rewards > 0] = pos_reward
             rewards[rewards <= 0] = neg_reward
+            discounted_rewards = torch.zeros_like(rewards, dtype=torch.float)
+            all_action_probs = torch.zeros_like(action_sequence, dtype=torch.float)
+            all_values = torch.zeros_like(rewards, dtype=torch.float)
             for img in range(bs):
                 old_states = states[img, :-1]
-                new_states = states[img, k_step:]
                 sequence = action_sequence[img]
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     actions, value = agent(old_states)
                     actions = torch.softmax(actions, dim=-1)
+                all_action_probs[img] = actions.gather(1, sequence.unsqueeze(-1)).squeeze()
+                all_values[img] = value.squeeze()
+            cum_sum += torch.sum(rewards)
 
-                r = rewards[img]
-                cum_sum += torch.sum(r)
-                state_action_probs = actions.gather(1, sequence.unsqueeze(-1))
+            seq_len = rewards.shape[1]
+            for i in range(seq_len):
+                if i < (seq_len - k_step):
 
-                with torch.no_grad():
-                    _, next_state_values = agent(new_states)
-                discounted_rewards = torch.zeros_like(r, device=device)
-                seq_len = r.shape[0]
-                for i in range(seq_len):
-                    if i < (seq_len - k_step):
-                        gamma_sum = torch.sum(gamma_tensor[:-1] * r[i: i + k_step])
-                        v = next_state_values[i] * gamma_tensor[-1]
-                        discounted_rewards[i] = (v + gamma_sum)
-                    else:
-                        discounted_rewards[i] = torch.sum(r[i:] * gamma_tensor[: seq_len - i])
-                loss, policy_loss, value_loss = loss_func(state_action_probs.squeeze(), value.squeeze(),
-                                                          discounted_rewards)
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                scheduler.step()
-                n_items += inputs.size(0)
-                running_loss += loss.item()
-                p_loss += policy_loss.item()
-                v_loss += value_loss.item()
-                correct += torch.sum(preds == labels)
+                    gamma_sum = torch.sum(gamma_tensor[:, :-1] * rewards[:, i: i + k_step], dim=-1)
+                    v = all_values[:, i + k_step].detach() * gamma_tensor[:, -1]
+                    discounted_rewards[:, i] = (v + gamma_sum)
+                else:
+                    discounted_rewards[:, i] = torch.sum(rewards[:, i:] * gamma_tensor[:, :seq_len - i], dim=-1)
+
+
+            loss, policy_loss, value_loss = loss_func(all_action_probs.squeeze(), all_values.squeeze(),
+                                                      discounted_rewards)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            n_items += inputs.size(0)
+            running_loss += loss.item()
+            p_loss += policy_loss.item()
+            v_loss += value_loss.item()
+            correct += torch.sum(preds == labels)
             counter += 1
-            if counter % 2 == 0:
+            if counter % 100 == 0:
                 print(torch.max(actions[0], dim=-1))
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
