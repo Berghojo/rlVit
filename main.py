@@ -17,7 +17,7 @@ if __name__ == "__main__":
     parser.add_argument("--agent_path", type=str, help="path to pretrained agent model", default=None)
     parser.add_argument("--nclasses", type=int, help="number of classes", default=10)
     parser.add_argument("--nepochs", type=int, help="number of epochs", default=300)
-    parser.add_argument("--agent_lr", type=float, help="learning rate", default=1e-2)
+    parser.add_argument("--agent_lr", type=float, help="learning rate", default=1e-5)
     parser.add_argument("--pretrain_lr", type=float, help="learning rate", default=1e-6)
     parser.add_argument("--batch", type=int, help="batch size", default=32)
 

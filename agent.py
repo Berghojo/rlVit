@@ -12,7 +12,7 @@ class SingleActionAgent(nn.Module):
     def __init__(self, n_patches):
         super(SingleActionAgent, self).__init__()
         self.conv = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
-        self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
+        self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
         self.fc = nn.Linear(35 * 35 * 32, 256)
         self.fc2 = nn.Linear(256, 256)
         self.action = nn.Linear(256, n_patches+1)

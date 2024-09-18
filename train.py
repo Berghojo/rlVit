@@ -129,7 +129,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                     g['lr'] = agent_lr
                 agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, agent_lr*5,
                                                                 epochs=max_epochs - pretraining_duration,
-                                                                steps_per_epoch=len(train_loader))
+                                                                steps_per_epoch=len(train_loader) * 49)
                 print("changed lr")
             if epoch < pretraining_duration:
 
@@ -394,7 +394,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             inputs = inputs.to(device)
             bs, _, _, _ = inputs.shape
             gamma_tensor = torch.tensor([gamma ** k for k in range(k_step + 1)], device=device)
-            gamma_tensor = gamma_tensor.repeat(bs, 1)
+
 
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
@@ -402,42 +402,31 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             preds, action_probs, model_probs, rewards, action_sequence, states = rl_training(agent, bs, inputs, labels,
                                                                                              model,
                                                                                              correct_only=not use_baseline)
-
             rewards[rewards > 0] = pos_reward
             rewards[rewards <= 0] = neg_reward
-
-            for im in range(49):
+            for img in range(bs):
+                old_states = states[img, :-1]
+                new_states = states[img, k_step:]
+                sequence = action_sequence[img]
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-
-                    old_states = states[im]
-
-                    new_states = states[im + k_step] if im + k_step < len(states) else None
-
-                    sequence = action_sequence[:, im]
                     actions, value = agent(old_states)
                     actions = torch.softmax(actions, dim=-1)
 
-                    r = rewards[:, im]
-                    cum_sum += torch.sum(r)
-                    state_action_probs = actions.gather(1, sequence.unsqueeze(-1))
+                r = rewards[img]
+                cum_sum += torch.sum(r)
+                state_action_probs = actions.gather(1, sequence.unsqueeze(-1))
 
-
-
-                    if new_states is not None:
-
-                        with torch.no_grad():
-                            _, next_state_values = agent(new_states)
-
-                        r_and_v = (torch.concat([rewards[:, im: im + k_step],
-                                                                         next_state_values],
-                                                                        dim=-1))
-
-                        mul = r_and_v * gamma_tensor
-                        discounted_rewards = torch.sum(mul, dim=-1)
+                with torch.no_grad():
+                    _, next_state_values = agent(new_states)
+                discounted_rewards = torch.zeros_like(r, device=device)
+                seq_len = r.shape[0]
+                for i in range(seq_len):
+                    if i < (seq_len - k_step):
+                        gamma_sum = torch.sum(gamma_tensor[:-1] * r[i: i + k_step])
+                        v = next_state_values[i] * gamma_tensor[-1]
+                        discounted_rewards[i] = (v + gamma_sum)
                     else:
-                        r_and_v = rewards[:, im:]
-                        discounted_rewards = torch.sum(r_and_v * gamma_tensor[:, :49 - im], dim=-1)
-
+                        discounted_rewards[i] = torch.sum(r[i:] * gamma_tensor[: seq_len - i])
                 loss, policy_loss, value_loss = loss_func(state_action_probs.squeeze(), value.squeeze(),
                                                           discounted_rewards)
                 scaler.scale(loss).backward()
@@ -450,7 +439,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 v_loss += value_loss.item()
                 correct += torch.sum(preds == labels)
             counter += 1
-            if counter % 100 == 0:
+            if counter % 2 == 0:
                 print(torch.max(actions[0], dim=-1))
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
@@ -548,17 +537,17 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
         normalize = Normalize(mean=mean, std=std)
         state = normalize(state)
-        states = []
+        states = torch.zeros_like(input_small, device=inputs.device).unsqueeze(1).expand(-1, 50, -1, -1, -1)
+
         rewards = torch.zeros((bs, 49), device=inputs.device)
         og_baseline = model(inputs, None).detach()
         baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
-        states.append(state)
+        states[:, 0] = state
         sequence = torch.zeros((bs, 49), device=inputs.device, dtype=torch.long)
         sequence_probs = torch.zeros((bs, 49, 50), device=inputs.device)
         values = torch.zeros((bs, 49), device=inputs.device)
         size = state.shape[2] // patches_per_side
         for i in range(49):
-
             logits, value = agent(state.detach())
             action_probs = torch.softmax(logits, dim=-1)
             dist = Categorical(action_probs)
@@ -573,7 +562,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
                     r = (a // patches_per_side) * size
                     c = (a % patches_per_side) * size
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
-            states.append(state)
+            states[:, i+1] = state
             outputs = model(inputs, sequence)
             probs, preds = torch.max(outputs, -1)
             if correct_only:
