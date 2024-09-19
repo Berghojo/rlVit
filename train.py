@@ -383,10 +383,10 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         cum_sum = 0
         p_loss = 0
         v_loss = 0
-        k_step = 10
+        k_step = 5
         pos_reward = 1
-        neg_reward = 0
-        gamma = 0.9
+        neg_reward = -0.01
+        gamma = 0.99
 
 
         for inputs, labels in tqdm(loader, disable=not verbose):
@@ -565,17 +565,17 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
                     c = (a % patches_per_side) * size
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i+1] = state
-            outputs = model(inputs, sequence)
-            probs, preds = torch.max(outputs, -1)
-            if correct_only:
-                reward = (preds == labels).long().squeeze()
+        outputs = model(inputs, sequence)
+        probs, preds = torch.max(outputs, -1)
+        if correct_only:
+            reward = (preds == labels).long().squeeze()
 
-            else:
-                normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+        else:
+            normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
 
-                reward = (normal - baseline).squeeze()
-                #reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
-            rewards[:, i] = reward
+            reward = (normal - baseline).squeeze()
+            #reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
+        rewards[:, -1] = reward
 
         return preds, sequence_probs, probs, rewards, sequence, states
 
