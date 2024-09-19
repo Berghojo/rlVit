@@ -385,7 +385,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         v_loss = 0
         k_step = 5
         pos_reward = 1
-        neg_reward = -0.01
+        neg_reward =0
         gamma = 0.99
 
 
