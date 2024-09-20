@@ -384,7 +384,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         p_loss = 0
         v_loss = 0
         k_step = 20
-        pos_reward = 1 / 49
+        pos_reward = 1
         neg_reward = 0
         gamma = 0.99
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
