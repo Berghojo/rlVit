@@ -152,7 +152,7 @@ class FusionLayer(nn.Module):
 
 class ViT(torch.nn.Module):
 
-    def __init__(self, num_classes, device=None, img_size=224, pretrained=True, reinforce=True):
+    def __init__(self, num_classes, device=None, img_size=224, pretrained=False, reinforce=True):
 
         super(ViT, self).__init__()
         image_size = img_size
