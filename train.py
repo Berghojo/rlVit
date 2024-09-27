@@ -348,20 +348,20 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 if a != 49:
                     r = (a // patches_per_side) * size
                     c = (a % patches_per_side) * size
-                    if batch_count % 100 == 50 and img == 0:
-                        image = unnormalize(state)
-                        image[img, :, r, c:c + size] = 0
-                        image[img, :, r + size - 1, c:c + size] = 0
-                        image[img, :, r:r + size, c] = 0
-                        image[img, :, r:r + size, c + size - 1] = 0
-                        image[img, 0, r, c:c + size] = 1
-                        image[img, 0, r + size - 1, c:c + size] = 1
-                        image[img, 0, r:r + size, c] = 1
-                        image[img, 0, r:r + size, c + size - 1] = 1
-                        plt.imshow(image[img].permute(1, 2, 0).cpu())
-                        plt.xlabel(action[img].item())
-                        plt.ylabel(pseudo_labels[img].item())
-                        plt.savefig(f"imgs/{img}.jpg")
+                    # if batch_count % 100 == 50 and img == 0:
+                    #     image = unnormalize(state)
+                    #     image[img, :, r, c:c + size] = 0
+                    #     image[img, :, r + size - 1, c:c + size] = 0
+                    #     image[img, :, r:r + size, c] = 0
+                    #     image[img, :, r:r + size, c + size - 1] = 0
+                    #     image[img, 0, r, c:c + size] = 1
+                    #     image[img, 0, r + size - 1, c:c + size] = 1
+                    #     image[img, 0, r:r + size, c] = 1
+                    #     image[img, 0, r:r + size, c + size - 1] = 1
+                    #     plt.imshow(image[img].permute(1, 2, 0).cpu())
+                    #     plt.xlabel(action[img].item())
+                    #     plt.ylabel(pseudo_labels[img].item())
+                    #     plt.savefig(f"imgs/{img}.jpg")
 
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
 
@@ -376,11 +376,13 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             loss = criterion(logits, pseudo_labels.long()) + value_loss
             if batch_count % 100 == 99:
                 print(loss)
+                print(running_loss)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
-            running_loss += (loss.item() * inputs.size(0))
+            running_loss += (loss.item())
+
 
             correct += torch.sum(preds == labels)
             n_items += inputs.size(0)
