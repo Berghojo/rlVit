@@ -80,8 +80,10 @@ class CustomLoss(nn.Module):
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-7, 1 - 1e-7)
 
         value_loss = torch.mean(advantage ** 2)
-        policy_loss = torch.mean(-torch.log(clipped_policy_per_action) * advantage.detach())
+        policy_loss = torch.log(clipped_policy_per_action) * advantage.detach()
+        #old_policy_loss = torch.mean(-torch.log(clipped_policy_per_action) * discounted_rewards.detach())
 
+        policy_loss = (-1 * policy_loss).mean()
 
         # entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
         
