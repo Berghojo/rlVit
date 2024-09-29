@@ -439,10 +439,10 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 all_values[img] = value.squeeze()
 
-                outputs = model(inputs, sequence)
-                probs, preds = torch.max(outputs, -1)
-                reward = (preds == labels).long().squeeze()
-                print(reward == rewards[img])
+            outputs = model(inputs, action_sequence)
+            probs, preds = torch.max(outputs, -1)
+            #reward = (preds == labels).long().squeeze()
+
             cum_sum += torch.sum(rewards)
 
             seq_len = rewards.shape[1]
