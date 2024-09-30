@@ -629,19 +629,19 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
 
-        outputs = model(inputs, sequence)
-        probs, preds = torch.max(outputs, -1)
-        if correct_only:
-            reward = (preds == labels).long().squeeze()
+            outputs = model(inputs, sequence)
+            probs, preds = torch.max(outputs, -1)
+            if correct_only:
+                reward = (preds == labels).long().squeeze()
 
-        else:
-            normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+            else:
+                normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
 
-            reward = (normal - baseline).squeeze()
-            reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
+                reward = (normal - baseline).squeeze()
+                reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
 
-        rewards[:, -1] = reward
-
+            rewards[:, i] = reward
+        
         return preds, sequence_probs, probs, rewards, sequence, states
 
 
