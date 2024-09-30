@@ -291,7 +291,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         batch_count = 0
         resize = Resize(35)
         value_criterion = torch.nn.MSELoss(reduction="mean")
-        criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.4)
+        criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.4, reduction="mean")
         for inputs, labels in tqdm(loader, disable=not verbose):
 
             optimizer.zero_grad(set_to_none=True)
