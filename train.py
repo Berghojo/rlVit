@@ -142,12 +142,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                 summarize(writer, "train", epoch, acc, loss)
 
             else:
-                if alternate:
-                    loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
-                                          train_agent=False,
-                                          verbose=verbose, scheduler=scheduler)
 
-                    summarize(writer, "train", epoch, acc, loss)
                 agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
@@ -157,7 +152,12 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
                 summarize_agent(writer, "train_agent", epoch, cum_reward, value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
+                if alternate:
+                    loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
+                                          train_agent=False,
+                                          verbose=verbose, scheduler=scheduler)
 
+                    summarize(writer, "train", epoch, acc, loss)
             #summarize(writer, "train", epoch, acc, loss)
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
