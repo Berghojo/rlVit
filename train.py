@@ -421,6 +421,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             rewards[rewards > 0] = pos_reward
             rewards[rewards <= 0] = neg_reward
             reward_mask = (action_sequence == 49)
+            save_pad_reward = rewards[reward_mask].clone()
             rewards[reward_mask] = 0
             discounted_rewards = torch.zeros_like(rewards, dtype=torch.float)
             all_action_probs = torch.zeros_like(action_sequence, dtype=torch.float)
@@ -473,7 +474,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                     discounted_rewards[:, i] = torch.sum(rewards[:, i:] * gamma_tensor[:, :seq_len - i], dim=-1)
 
-
+            discounted_rewards[reward_mask] = save_pad_reward
             loss, policy_loss, value_loss = loss_func(all_action_probs.squeeze(), all_values.squeeze(),
                                                       discounted_rewards)
             scaler.scale(loss).backward()
@@ -636,10 +637,11 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
             dist = Categorical(action_probs)
             action = dist.sample() #torch.argmax(action_probs, dim=-1)
             sequence_probs[:, i] = action_probs
-            action[completeness_mask.bool()] = 49
+
             sequence[:, i] = action
 
             values[:, i] = value.squeeze()
+            action[completeness_mask.bool()] = 49
             for img in range(bs):
                 a = action[img]
                 if a != 49:
@@ -652,6 +654,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
             probs, preds = torch.max(outputs, -1)
             reward = (preds == labels).long().squeeze()
             completeness_mask = completeness_mask | reward.byte() | torch.eq(action, 49).byte()
+
             if not correct_only:
                 normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
                 reward = (normal - baseline).squeeze()
