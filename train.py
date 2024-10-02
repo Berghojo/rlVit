@@ -675,8 +675,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
                 rewards[:, i+1] = reward
             else:
                 rewards[:, i] = reward
-        print(sequence[3], rewards[3])
-        print(sequence[0], rewards[0])
+
         return preds, sequence_probs, probs, rewards, sequence, states
 
 
