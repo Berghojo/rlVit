@@ -217,7 +217,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
                     correct[preds[i]] += 1
         if agent is not None:
             test_input, _ = next(iter(loader))
-            test_input = torch.unsqueeze(test_input[0], 0)
+            test_input = torch.unsqueeze(test_input[0], 0).to(device)
 
             sequence = generate_max_agent(agent, 1, test_input, patches_per_side)
             f = open("permutation.txt", "a")
@@ -490,7 +490,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 print(torch.max(actions[0], dim=-1))
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
-                print(acc)
+                print(f'Acc: {acc}')
 
 
 
