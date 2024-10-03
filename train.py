@@ -494,7 +494,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
                 print(f'Acc: {acc}')
-                break
+
 
 
 
