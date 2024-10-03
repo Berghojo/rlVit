@@ -398,7 +398,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         k_step = 5
         pos_reward = 1
         neg_reward = -0.01
-        gamma = 0.9
+        gamma = 0.99
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
         unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
@@ -661,20 +661,21 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
 
-            outputs = model(inputs, sequence)
-            probs, preds = torch.max(outputs, -1)
-            reward = (preds == labels).long().squeeze()
+        outputs = model(inputs, sequence)
+        probs, preds = torch.max(outputs, -1)
+        reward = (preds == labels).long().squeeze()
 
 
-            if not correct_only:
-                normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
-                reward = (normal - baseline).squeeze()
-                reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
-            if i < 48:
-                rewards[:, i+1] = reward
-            else:
-                rewards[:, i] = reward
-            completeness_mask = completeness_mask | reward.byte()
+        if not correct_only:
+            normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+            reward = (normal - baseline).squeeze()
+            reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
+        insert_mask = (sequence == 50)
+        not_yet_done = ~torch.any(insert_mask, dim=-1)
+        insert_mask[not_yet_done, -1] = True
+
+        rewards[insert_mask] = reward.float()
+
         return preds, sequence_probs, probs, rewards, sequence, states
 
 
