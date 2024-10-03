@@ -191,7 +191,7 @@ def summarize_agent(writer, split, epoch, cum_reward, value_loss, policy_loss):
     writer.add_scalar('policy_loss/' + split, policy_loss, epoch)
 
 
-def eval_vit(model, device, loader, n_classes, agent, verbose=True):
+def eval_vit(model, device, loader, n_classes, agent, verbose=True, outfile="permutation.txt"):
     model.eval()
     if agent is not None:
         agent.eval()
@@ -220,7 +220,7 @@ def eval_vit(model, device, loader, n_classes, agent, verbose=True):
             test_input = torch.unsqueeze(test_input[0], 0).to(device)
 
             sequence = generate_max_agent(agent, 1, test_input, patches_per_side)
-            f = open("permutation.txt", "a")
+            f = open(outfile, "a")
 
             print(sequence[0], file=f)
             #print(list(probs), file=f)
@@ -397,7 +397,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         v_loss = 0
         k_step = 5
         pos_reward = 1
-        neg_reward = 0
+        neg_reward = -0.01
         gamma = 0.9
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
@@ -442,10 +442,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 with torch.no_grad():
                     _, new_value = agent(new_states)
                 new_value = new_value.squeeze()
-                new_reward_mask = torch.cat([reward_mask[img, 1:], torch.ones((1,), device=device).bool()], dim=-1)
 
 
-                new_value[new_reward_mask] = 0
+                new_value[reward_mask[img]] = 0
 
 
                 actions = torch.softmax(actions, dim=-1)
@@ -491,11 +490,11 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             correct += torch.sum(preds == labels)
             counter += 1
             if counter % 100 == 2:
-                print(torch.max(actions[0], dim=-1))
+                print(action_sequence[0])
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
                 print(f'Acc: {acc}')
-
+                break
 
 
 
@@ -656,16 +655,16 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
 
             for img in range(bs):
                 a = action[img]
-                if a != 49:
+                if a < 49:
                     r = (a // patches_per_side) * size
                     c = (a % patches_per_side) * size
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
 
-            outputs = model(inputs, sequence)
+            outputs = model(inputs[completeness_mask], sequence[completeness_mask])
             probs, preds = torch.max(outputs, -1)
             reward = (preds == labels).long().squeeze()
-            completeness_mask = completeness_mask | reward.byte()
+
 
             if not correct_only:
                 normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
@@ -675,7 +674,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
                 rewards[:, i+1] = reward
             else:
                 rewards[:, i] = reward
-
+            completeness_mask = completeness_mask | reward.byte()
         return preds, sequence_probs, probs, rewards, sequence, states
 
 
