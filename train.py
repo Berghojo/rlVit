@@ -661,7 +661,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
 
-            outputs = model(inputs[completeness_mask], sequence[completeness_mask])
+            outputs = model(inputs, sequence)
             probs, preds = torch.max(outputs, -1)
             reward = (preds == labels).long().squeeze()
 
