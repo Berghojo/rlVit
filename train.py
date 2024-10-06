@@ -395,9 +395,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         cum_sum = 0
         p_loss = 0
         v_loss = 0
-        k_step = 5
+        k_step = 10
         pos_reward = 1
-        neg_reward = -0.01
+        neg_reward = 0
         gamma = 0.99
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
@@ -477,6 +477,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                     discounted_rewards[:, i] = torch.sum(rewards[:, i:] * gamma_tensor[:, :seq_len - i], dim=-1)
             all_values[reward_mask] = 0
+            all_action_probs[reward_mask] = 0
 
             loss, policy_loss, value_loss = loss_func(all_action_probs.squeeze(), all_values.squeeze(),
                                                       discounted_rewards)
@@ -491,7 +492,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             correct += torch.sum(preds == labels)
             counter += 1
             if counter % 100 == 2:
-                print(action_sequence[0])
+                print(action_sequence[0], all_action_probs[0])
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
                 print(f'Acc: {acc}')
