@@ -476,6 +476,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 else:
 
                     discounted_rewards[:, i] = torch.sum(rewards[:, i:] * gamma_tensor[:, :seq_len - i], dim=-1)
+            all_values[reward_mask] = 0
 
             loss, policy_loss, value_loss = loss_func(all_action_probs.squeeze(), all_values.squeeze(),
                                                       discounted_rewards)
