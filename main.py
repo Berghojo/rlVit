@@ -8,7 +8,7 @@ def main(rank, world_size, args):
           verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,
           warmup=args.warmup, use_baseline=args.baseline
           , logging=args.logging, alternate=args.alternate, rank=rank, world_size=world_size, agent_lr= args.agent_lr,
-          pretrain_lr=args.pretrain_lr)
+          pretrain_lr=args.pretrain_lr, model_lr=args.model_lr)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RL-ViT arg parser")
@@ -20,6 +20,7 @@ if __name__ == "__main__":
     parser.add_argument("--nepochs", type=int, help="number of epochs", default=300)
     parser.add_argument("--agent_lr", type=float, help="learning rate", default=1e-5)
     parser.add_argument("--pretrain_lr", type=float, help="learning rate", default=1e-6)
+    parser.add_argument("--model_lr", type=float, help="learning rate", default=1e-6)
     parser.add_argument("--batch", type=int, help="batch size", default=32)
 
     parser.add_argument("--img_size", type=int, help="height (width) of images)", default=224)

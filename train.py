@@ -48,7 +48,7 @@ def set_deterministic(seed=2408):
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False,
           alternate=True,
-          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4):
+          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4):
     #torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
@@ -115,9 +115,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
     summarize(writer, "test", -1, accuracy)
 
-    model_optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
 
-    scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, 1e-3, steps_per_epoch=len(train_loader),
+    scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, model_lr * 5, steps_per_epoch=len(train_loader),
                                               epochs=max_epochs - pretraining_duration)
     scaler = GradScaler()
 
