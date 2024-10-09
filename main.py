@@ -7,7 +7,8 @@ def main(rank, world_size, args):
     train(args.run_name, args.nclasses, args.nepochs, args.base_path, reinforce=args.use_rl,
           verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,
           warmup=args.warmup, use_baseline=args.baseline
-          , logging=args.logging, alternate=args.alternate, rank=rank, world_size=world_size)
+          , logging=args.logging, alternate=args.alternate, rank=rank, world_size=world_size, agent_lr= args.agent_lr,
+          pretrain_lr=args.pretrain_lr)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RL-ViT arg parser")
