@@ -518,7 +518,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             v_loss += value_loss.item()
             correct += torch.sum(preds == labels)
             counter += 1
-            if counter % 2 == 1:
+            if counter % 100 == 1:
                 print(action_sequence[0], all_action_probs[0])
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
@@ -554,7 +554,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
-            if counter % 2 == 1:
+            if counter % 100 == 1:
                 print(f'Loss {loss}')
                 acc = correct / n_items
                 print(acc)
@@ -605,7 +605,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     values = torch.zeros((bs, 49), device=inputs.device)
     size = state.shape[2] // patches_per_side
     for i in range(49):
-        logits, value = agent(state.detach())
+        logits, value, _, _, _ = agent(state.detach())
         action_probs = torch.softmax(logits, dim=-1)
         action = torch.argmax(action_probs, dim=-1)
         action[completeness_mask.bool()] = 49
