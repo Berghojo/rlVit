@@ -6,7 +6,25 @@ from torch import Tensor, device, dtype
 from collections import namedtuple, deque
 
 import numpy as np
+class Manager(nn.Module):
+    def __init__(self):
+        super(Manager, self).__init__()
 
+        self.fc = nn.Linear(35 * 35 * 32, 512)
+        self.fc2 = nn.Linear(512, 512)
+        self.relu = nn.ReLU()
+        self.value = nn.Linear(512, 1)
+    def freeze(self, freeze):
+        print("Setting Agent Training to: ", freeze)
+        for param in self.parameters():
+            param.requires_grad = freeze
+
+    def forward(self, x):
+        state = self.fc(x)
+        x = self.fc2(state)
+        goal = torch.nn.functional.normalize(x, p=1, dim=-1)
+        value = self.value(x)
+        return goal, value, state
 
 class SingleActionAgent(nn.Module):
     def __init__(self, n_patches):
@@ -14,9 +32,12 @@ class SingleActionAgent(nn.Module):
         self.conv = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
         self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
         self.fc = nn.Linear(35 * 35 * 32, 256)
+        self.manager = Manager()
         self.fc2 = nn.Linear(256, 256)
-        self.action = nn.Linear(256, n_patches+1)
-        self.value = nn.Linear(256, 1)
+        self.goal_proj = nn.Linear(512, 256)
+
+        self.action = nn.Linear(256 * 2, n_patches+1)
+        self.value = nn.Linear(256 * 2, 1)
         self.relu = nn.ReLU()
         self._reset_parameters()
 
@@ -29,16 +50,26 @@ class SingleActionAgent(nn.Module):
         for param in self.parameters():
             param.requires_grad = freeze
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor):
         x = self.conv(x)
         x = self.conv_2(x)
         x = x.flatten(1)
+
+        goal, manager_value, manager_state = self.manager(x)
+
         x = self.relu(self.fc(x))
         x = self.relu(self.fc2(x))
+
+        goal_proj = self.goal_proj(goal.detach())
+
+        x = torch.concat([x, goal_proj], dim=-1)
+
+
+
         action = self.action(x)
         value = self.value(x)
 
-        return action, value
+        return action, value, manager_value, manager_state, goal
 
 class SimpleAgent(nn.Module):
 
@@ -49,6 +80,7 @@ class SimpleAgent(nn.Module):
         self.value = nn.Linear(in_features=768, out_features=1)
         decoder_layer = nn.TransformerDecoderLayer(d_model=768, nhead=8, norm_first=True, batch_first=True)
         self.decoder = nn.TransformerDecoder(decoder_layer, 6, norm=nn.LayerNorm(768))
+
         self._reset_parameters()
     def _reset_parameters(self):
         for p in self.parameters():

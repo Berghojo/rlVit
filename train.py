@@ -14,6 +14,7 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
+
 import os
 
 from util import CustomLoss
@@ -393,12 +394,15 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     if train_agent:
         loss_func = CustomLoss().to(device)
         cum_sum = 0
+        d_cos = nn.CosineSimilarity(dim=-1, eps=1e-6)
         p_loss = 0
         v_loss = 0
         k_step = 10
         pos_reward = 1
+        horizon = 7
         neg_reward = 0
         gamma = 0.99
+        seq_len = 49
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
         unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
@@ -426,21 +430,29 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             rewards[reward_mask] = 0
             discounted_rewards = torch.zeros_like(rewards, dtype=torch.float)
+            intrinsic_rewards = torch.zeros_like(rewards, dtype=torch.float)
+
             all_action_probs = torch.zeros_like(action_sequence, dtype=torch.float)
             all_values = torch.zeros_like(rewards, dtype=torch.float)
             new_values = torch.zeros_like(rewards, dtype=torch.float)
-
-
+            manager_values = torch.zeros((bs, seq_len+1), dtype=torch.float, device=device)
+            manager_states = torch.zeros((bs, seq_len+1, 512), dtype=torch.float, device=device)
+            manager_state_diff = torch.zeros_like(manager_states, dtype=torch.float)
+            goals = torch.zeros((bs, seq_len+1, 512), dtype=torch.float, device=device)
+            worker_state_diff = torch.zeros_like(manager_states, dtype=torch.float)
             for img in range(bs):
                 old_states = states[img, :-1]
                 new_states = states[img, 1:]
                 sequence = action_sequence[img]
-
-
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-                    actions, value = agent(old_states)
+                    actions, value, _, _, _ = agent(old_states)
+
+                    _, _, manager_value, manager_state, goal, = agent(states[img])
+                manager_values[img] = manager_value.squeeze()
+                manager_states[img] = manager_state
+                goals[img] = goal
                 with torch.no_grad():
-                    _, new_value = agent(new_states)
+                    _, new_value, _, _, _ = agent(new_states)
                 new_value = new_value.squeeze()
 
 
@@ -454,6 +466,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 all_values[img] = value.squeeze()
                 new_values[img] = new_value
+
             outputs = model(inputs, action_sequence)
             probs, preds = torch.max(outputs, -1)
             #reward = (preds == labels).long().squeeze()
@@ -464,8 +477,20 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             seq_len = rewards.shape[1]
 
             for i in range(seq_len):
-                if i < (seq_len - k_step):
+                if i < (seq_len - horizon):
 
+                    manager_state_diff[:, i] = manager_states[:, i+horizon] - manager_states[:, i]
+                else:
+                    manager_state_diff[:, i] = manager_states[:, -1] - manager_states[:, i]
+                if i > 0:
+                    for h in range(1, horizon + 1):
+                        if i-h < 0:
+                            continue
+                        intrinsic_rewards[:, i-1] += d_cos(manager_states[:, i] - manager_states[:, i-h], goals[:, i-h])
+
+                    intrinsic_rewards[:, i-1] = intrinsic_rewards[:, i-1] / min(horizon, i)
+
+                if i < (seq_len - k_step):
                     gamma_sum = torch.sum(gamma_tensor[:, :-1] * rewards[:, i: i + k_step], dim=-1)
 
                     v = new_values[:, i + k_step].detach() * gamma_tensor[:, -1]
@@ -476,11 +501,13 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 else:
 
                     discounted_rewards[:, i] = torch.sum(rewards[:, i:] * gamma_tensor[:, :seq_len - i], dim=-1)
+            intrinsic_rewards[reward_mask] = 0
+
             all_values[reward_mask] = 0
             all_action_probs[reward_mask] = 0
-
             loss, policy_loss, value_loss = loss_func(all_action_probs.squeeze(), all_values.squeeze(),
-                                                      discounted_rewards)
+                                                      discounted_rewards, manager_state_diff.detach(), goals,
+                                                      manager_values, intrinsic_rewards.detach(), reward_mask)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
@@ -491,7 +518,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             v_loss += value_loss.item()
             correct += torch.sum(preds == labels)
             counter += 1
-            if counter % 100 == 2:
+            if counter % 2 == 1:
                 print(action_sequence[0], all_action_probs[0])
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
@@ -527,7 +554,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
-            if counter % 100 == 2:
+            if counter % 2 == 1:
                 print(f'Loss {loss}')
                 acc = correct / n_items
                 print(acc)
@@ -636,8 +663,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
         size = state.shape[2] // patches_per_side
         unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
         for i in range(49):
-
-            logits, value = agent(state.detach())
+            logits, value, _, _, _ = agent(state.detach())
             action_probs = torch.softmax(logits, dim=-1)
             dist = Categorical(action_probs)
             action = dist.sample() #torch.argmax(action_probs, dim=-1)

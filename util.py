@@ -66,19 +66,35 @@ class PositionalEncodingPermute1D(nn.Module):
     def org_channels(self):
         return self.penc.org_channels
 
+class ManagerLoss(nn.Module):
+    def __init__(self):
+        super(ManagerLoss, self).__init__()
+        self.cos = nn.CosineSimilarity(dim=-1, eps=1e-6)
+        self.value_factor = 0.5
+    def forward(self, rewards, state_diff,  goals, values, reward_mask):
+        advantage = rewards - values[:, :-1]
+        advantage[reward_mask] = 0
 
+
+        loss = advantage.detach() * self.cos(state_diff[:, :-1], goals[:, :-1])
+        value_loss = torch.mean(advantage ** 2)
+        loss = torch.mean(loss)
+        return loss + self.value_factor * value_loss
 class CustomLoss(nn.Module):
     def __init__(self):
         super(CustomLoss, self).__init__()
         self.value_factor = 0.5
         self.entropy_factor = 0.01
+        self.intrinsic_factor = 1
+        self.manager_horizon = 7
+        self.manager_loss = ManagerLoss()
+    def forward(self, policy_per_action, values, discounted_rewards, state_diff, goals, manager_values, intrinsic_rewards, reward_mask):
 
-    def forward(self, policy_per_action, values, discounted_rewards):
-
-        advantage = discounted_rewards.detach() - values
+        worker_reward = discounted_rewards + intrinsic_rewards * self.intrinsic_factor
+        advantage = worker_reward.detach() - values
         #clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-8, 1 - 1e-8)
-
+        manager_loss = self.manager_loss(discounted_rewards, state_diff, goals, manager_values, reward_mask)
         value_loss = torch.mean(advantage ** 2)
         policy_loss = torch.log(clipped_policy_per_action) * advantage.detach()
         #old_policy_loss = torch.mean(-torch.log(clipped_policy_per_action) * discounted_rewards.detach())
@@ -86,9 +102,8 @@ class CustomLoss(nn.Module):
         policy_loss = (-1 * policy_loss).mean()
 
         # entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
-        
         # entropy_loss = -torch.mean(entropy)
-        loss = policy_loss + self.value_factor * value_loss
+        loss = policy_loss + self.value_factor * value_loss + manager_loss
         return loss, policy_loss, value_loss
 
 
