@@ -108,13 +108,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
-    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
-                                        verbose=verbose)
-    print('[Test] ACC: {:.4f} '.format(accuracy))
-    print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-
-
-    summarize(writer, "test", -1, accuracy)
+    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
+    #                                     verbose=verbose)
+    # print('[Test] ACC: {:.4f} '.format(accuracy))
+    # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+    #
+    #
+    # summarize(writer, "test", -1, accuracy)
 
     model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
 
@@ -527,6 +527,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
 
 
+
         return running_loss, correct / n_items, p_loss, v_loss, cum_sum / counter
     else:
         for inputs, labels in tqdm(loader, disable=not verbose):
@@ -608,6 +609,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
         logits, value, _, _, _ = agent(state.detach())
         action_probs = torch.softmax(logits, dim=-1)
         action = torch.argmax(action_probs, dim=-1)
+
         action[completeness_mask.bool()] = 49
         sequence[:, i] = action
         completeness_mask = completeness_mask | torch.eq(action, 49).byte()
