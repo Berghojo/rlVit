@@ -35,7 +35,7 @@ class SingleActionAgent(nn.Module):
         self.fc = nn.Linear(35 * 35 * 32, 256)
         self.manager = Manager()
         self.fc2 = nn.Linear(256, 256)
-        self.goal_proj = nn.Linear(512, 256)
+        self.goal_proj = nn.Linear(512, 256, bias=False)
         self.n_patches = n_patches
         self.action = nn.Linear(256, (n_patches+1) * 256)
         self.value = nn.Linear(256, 1)
@@ -60,7 +60,7 @@ class SingleActionAgent(nn.Module):
         x = self.relu(self.fc(x))
         x = self.relu(self.fc2(x))
 
-        goal_proj = self.goal_proj(goal.detach()).unsqueeze(-1)
+        goal_proj = self.relu(self.goal_proj(goal.detach()).unsqueeze(-1))
 
         action = self.action(x).reshape(-1, self.n_patches+1, 256)
         action = torch.matmul(action, goal_proj).squeeze(-1)
