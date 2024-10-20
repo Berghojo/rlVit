@@ -20,9 +20,9 @@ class Manager(nn.Module):
             param.requires_grad = freeze
 
     def forward(self, state):
-        state = self.relu(self.state_projection(state))
+        state = self.state_projection(state)
         x = self.relu(self.fc(state))
-        x = self.relu(self.fc2(x))
+        x = self.fc2(x)
         goal = torch.nn.functional.normalize(x)
         value = self.value(x)
         return goal, value, state
