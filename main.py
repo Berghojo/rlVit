@@ -16,7 +16,7 @@ if __name__ == "__main__":
     parser.add_argument("--run_name", type=str, help="name of run")
     parser.add_argument("--base_path", type=str, help="path to pretrained vit_b_32 model", default=None)
     parser.add_argument("--agent_path", type=str, help="path to pretrained agent model", default=None)
-    parser.add_argument("--nclasses", type=int, help="number of classes", default=10)
+    parser.add_argument("--nclasses", type=int, help="number of classes", default=100)
     parser.add_argument("--nepochs", type=int, help="number of epochs", default=300)
     parser.add_argument("--agent_lr", type=float, help="learning rate", default=1e-5)
     parser.add_argument("--pretrain_lr", type=float, help="learning rate", default=1e-6)
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     parser.set_defaults(alternate=True)
 
     parser.add_argument('--pretrained', action='store_true')
-    parser.add_argument('--no-pretrained', dest='alternate', action='store_false')
+    parser.add_argument('--no-pretrained', dest='pretrained', action='store_false')
     parser.set_defaults(pretrained=False)
 
     args = parser.parse_args()

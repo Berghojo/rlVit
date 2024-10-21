@@ -27,12 +27,12 @@ class Data(Dataset):
                                     ),  0.5),
                                     (transforms.RandomAffine(0, shear=10, scale=(0.8, 1.2)), 0.5)
                                     ]
-            self.set = torchvision.datasets.CIFAR10(root='./data', train=True,
+            self.set = torchvision.datasets.CIFAR100(root='./data', train=True,
                                                 download=True)
 
 
         else:
-            self.set = torchvision.datasets.CIFAR10(root='./data', train=False,
+            self.set = torchvision.datasets.CIFAR100(root='./data', train=False,
                                                download=True)
 
 
