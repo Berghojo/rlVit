@@ -8,7 +8,7 @@ def main(rank, world_size, args):
           verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,
           warmup=args.warmup, use_baseline=args.baseline
           , logging=args.logging, alternate=args.alternate, rank=rank, world_size=world_size, agent_lr= args.agent_lr,
-          pretrain_lr=args.pretrain_lr, model_lr=args.model_lr)
+          pretrain_lr=args.pretrain_lr, model_lr=args.model_lr, pretrained=args.pretrained)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RL-ViT arg parser")
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     parser.set_defaults(alternate=True)
 
     parser.add_argument('--pretrained', action='store_true')
-    parser.add_argument('--no-pretrained', dest='alternate', action='store_false')
+    parser.add_argument('--no-pretrained', dest='pretrained', action='store_false')
     parser.set_defaults(pretrained=False)
 
     args = parser.parse_args()

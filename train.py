@@ -88,6 +88,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     else:
         agent = None
     if base_model:
+
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
         mydic = torch.load(base_model, map_location="cpu")
         new_state_dict = OrderedDict()
@@ -103,6 +104,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
     else:
+        print(pretrained)
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
 
         model = model.to(rank)
