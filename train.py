@@ -25,7 +25,9 @@ from data import *
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    port = str(random.randint(1024, 65535))
+    print(port)
+    os.environ['MASTER_PORT'] = port
 
     # initialize the process group
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
@@ -49,7 +51,7 @@ def set_deterministic(seed=2408):
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=True, agent_model=None,
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False,
           alternate=True,
-          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4):
+          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, data_set="cifar10"):
     #torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
@@ -63,7 +65,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     gc.collect()
     launch_time = time.strftime("%Y_%m_%d-%H_%M")
     writer = SummaryWriter(log_dir='logs/' + model_name + launch_time)
-    train_loader, test_loader = get_loader(img_size, batch_size)
+    train_loader, test_loader = get_loader(img_size, batch_size, data_set=data_set, world_size=world_size)
     if reinforce:
         print("Reinforce")
         agent = SingleActionAgent(49)
