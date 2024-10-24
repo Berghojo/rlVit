@@ -7,39 +7,37 @@ from collections import namedtuple, deque
 
 import numpy as np
 class Manager(nn.Module):
-    def __init__(self):
+    def __init__(self, d):
         super(Manager, self).__init__()
-        self.state_projection = nn.Linear(35 * 35 * 32, 512)
-        self.fc = nn.Linear(512, 512)
-        self.fc2 = nn.RNNCell(512, 512)
-        self.relu = nn.ReLU()
-        self.value = nn.Linear(512, 1)
+        self.state_projection = nn.Linear(d, d)
+        self.rnn = nn.RNNCell(d, d)
+        self.value = nn.Linear(d, 1)
+
     def freeze(self, freeze):
         print("Setting Agent Training to: ", freeze)
         for param in self.parameters():
             param.requires_grad = freeze
 
-    def forward(self, state, hidden=None):
-        state = self.state_projection(state)
-        x = self.relu(self.fc(state))
-
-        hidden = self.fc2(x, hidden)
+    def forward(self, x, hidden=None):
+        x = self.state_projection(x)
+        hidden = self.rnn(x, hidden)
         goal = torch.nn.functional.normalize(hidden, dim=-1)
-        value = self.value(x)
-        return goal, value, state, hidden
+        value = self.value(goal)
+        return goal, value, x, hidden
 
 class SingleActionAgent(nn.Module):
     def __init__(self, n_patches):
         super(SingleActionAgent, self).__init__()
+        self.n_patches = n_patches
+        self.k = 16
+        self.d = (self.n_patches + 1) * self.k
         self.conv = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
         self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
-        self.fc = nn.Linear(35 * 35 * 32, 256)
-        self.manager = Manager()
-        self.fc2 = nn.Linear(256, 256)
-        self.goal_proj = nn.Linear(512, 256, bias=False)
-        self.n_patches = n_patches
-        self.action = nn.RNNCell(256, (n_patches+1)*256)
-        self.value = nn.Linear(256, 1)
+        self.fc = nn.Linear(35 * 35 * 32, self.d)
+        self.manager = Manager(self.d)
+        self.goal_proj = nn.Linear(self.d, self.k, bias=False)
+        self.action = nn.RNNCell(self.d, self.d)
+        self.value = nn.Linear(self.d, 1)
         self.relu = nn.ReLU()
         self._reset_parameters()
 
@@ -53,22 +51,20 @@ class SingleActionAgent(nn.Module):
             param.requires_grad = freeze
 
     def forward(self, x: Tensor, pretrain=False, hidden_m=None, hidden=None):
-        x = self.conv(x)
-        x = self.conv_2(x)
+        x = self.relu(self.conv(x))
+        x = self.relu(self.conv_2(x))
         x = x.flatten(1)
-
+        x = self.relu(self.fc(x))
         goal, manager_value, manager_state, hidden_manager = self.manager(x, hidden_m)
         goal_hidden = goal
         if not pretrain:
             goal = goal.detach()
-        x = self.relu(self.fc(x))
-        x = self.relu(self.fc2(x))
 
-        goal_proj = self.relu(self.goal_proj(goal).unsqueeze(-1))
+        goal_proj = self.goal_proj(goal).unsqueeze(-1)
 
         hidden = self.action(x, hidden)
 
-        action = torch.matmul(hidden.reshape(-1, self.n_patches+1, 256), goal_proj).squeeze(-1)
+        action = torch.matmul(hidden.reshape(-1, self.n_patches+1, self.k), goal_proj).squeeze(-1)
         value = self.value(x)
 
         return action, value, manager_value, manager_state, goal_hidden, hidden.detach(), hidden_manager.detach()

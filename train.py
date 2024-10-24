@@ -447,9 +447,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             all_values = torch.zeros_like(rewards, dtype=torch.float)
             new_values = torch.zeros_like(rewards, dtype=torch.float)
             manager_values = torch.zeros((bs, seq_len+1), dtype=torch.float, device=device)
-            manager_states = torch.zeros((bs, seq_len+1, 512), dtype=torch.float, device=device)
+            manager_states = torch.zeros((bs, seq_len+1, 800), dtype=torch.float, device=device)
             manager_state_diff = torch.zeros_like(manager_states, dtype=torch.float)
-            goals = torch.zeros((bs, seq_len+1, 512), dtype=torch.float, device=device)
+            goals = torch.zeros((bs, seq_len+1, 800), dtype=torch.float, device=device)
             worker_state_diff = torch.zeros_like(manager_states, dtype=torch.float)
             # for img in range(bs):
             #     old_states = states[img, :-1]
