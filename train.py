@@ -291,10 +291,11 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
     patches_per_side = 7
 
     if pretrain:
+        print("pretraining")
         batch_count = 0
         resize = Resize(35)
         value_criterion = torch.nn.MSELoss(reduction="mean")
-        criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.4, reduction="mean")
+        criterion = torch.nn.CrossEntropyLoss(reduction="mean")
         for inputs, labels in tqdm(loader, disable=not verbose):
 
             optimizer.zero_grad(set_to_none=True)
@@ -305,14 +306,14 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             sequence = torch.arange(0, 49, device=device, dtype=torch.long)
             sequence = sequence.repeat(bs, 1)
             random_idx = torch.randint(0, 49, (bs,), device=device)
-            pseudo_labels = torch.zeros_like(random_idx, device=device)
+            pseudo_labels = torch.zeros((bs, 50), device=device)
             state = torch.zeros_like(input_small, device=device)
             mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
             std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
             normalize = Normalize(mean=mean, std=std)
             state = normalize(state)
             unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
-
+            label_smooth = 0.3
             size = state.shape[2] // patches_per_side
 
             for i, idx in enumerate(random_idx):
@@ -320,11 +321,14 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 seq_len = sequence[i].shape[0]
                 rand_perm = torch.randperm(seq_len)
                 sequence[i] = sequence[i, rand_perm]
-                for num in range(49):
-                    if num not in list(sequence[i, :idx]):
-                        pseudo_labels[i] = num
-                        break
-                sequence[i, idx:] = 49
+                pseudo_labels[i, idx:] = (1-label_smooth)/len(pseudo_labels[i, idx:])
+                if idx != 0:
+                    pseudo_labels[i, :idx] = (label_smooth) / len(pseudo_labels[i, :idx])
+                # for num in range(49):
+                #     if num not in list(sequence[i, :idx]):
+                #         pseudo_labels[i] = num
+                #         break
+
 
                 for a in range(idx):
                     action = sequence[i, a]
@@ -345,28 +349,28 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 sequence[:, random_idx] = action
 
-            for img in range(bs):
-
-                a = action[img]
-                if a != 49:
-                    r = (a // patches_per_side) * size
-                    c = (a % patches_per_side) * size
-                    # if batch_count % 100 == 50 and img == 0:
-                    #     image = unnormalize(state)
-                    #     image[img, :, r, c:c + size] = 0
-                    #     image[img, :, r + size - 1, c:c + size] = 0
-                    #     image[img, :, r:r + size, c] = 0
-                    #     image[img, :, r:r + size, c + size - 1] = 0
-                    #     image[img, 0, r, c:c + size] = 1
-                    #     image[img, 0, r + size - 1, c:c + size] = 1
-                    #     image[img, 0, r:r + size, c] = 1
-                    #     image[img, 0, r:r + size, c + size - 1] = 1
-                    #     plt.imshow(image[img].permute(1, 2, 0).cpu())
-                    #     plt.xlabel(action[img].item())
-                    #     plt.ylabel(pseudo_labels[img].item())
-                    #     plt.savefig(f"imgs/{img}.jpg")
-
-                    state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+            # for img in range(bs):
+            #
+            #     a = action[img]
+            #     if a != 49:
+            #         r = (a // patches_per_side) * size
+            #         c = (a % patches_per_side) * size
+            #         # if batch_count % 100 == 50 and img == 0:
+            #         #     image = unnormalize(state)
+            #         #     image[img, :, r, c:c + size] = 0
+            #         #     image[img, :, r + size - 1, c:c + size] = 0
+            #         #     image[img, :, r:r + size, c] = 0
+            #         #     image[img, :, r:r + size, c + size - 1] = 0
+            #         #     image[img, 0, r, c:c + size] = 1
+            #         #     image[img, 0, r + size - 1, c:c + size] = 1
+            #         #     image[img, 0, r:r + size, c] = 1
+            #         #     image[img, 0, r:r + size, c + size - 1] = 1
+            #         #     plt.imshow(image[img].permute(1, 2, 0).cpu())
+            #         #     plt.xlabel(action[img].item())
+            #         #     plt.ylabel(pseudo_labels[img].item())
+            #         #     plt.savefig(f"imgs/{img}.jpg")
+            #
+            #         state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
 
 
 
@@ -377,7 +381,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             rewards = (preds == labels).to(torch.half)
             value_loss = value_criterion(value.squeeze(), rewards.squeeze())
             m_value_loss = value_criterion(m_val.squeeze(), rewards.squeeze())
-            loss = criterion(logits, pseudo_labels.long()) + value_loss + m_value_loss
+
+            loss = criterion(logits, pseudo_labels) + value_loss + m_value_loss
             if batch_count % 100 == 99:
                 print(loss)
                 print(running_loss)
