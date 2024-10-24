@@ -327,8 +327,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 if idx != 0:
                     pseudo_labels[i, sequence[i, :idx] ] = (label_smooth) / len(pseudo_labels[i, :idx])
                 sequence[i, idx:] = 49
-                print(pseudo_labels[0])
-                raise Exception
+
                 # for num in range(49):
                 #     if num not in list(sequence[i, :idx]):
                 #         pseudo_labels[i] = num
