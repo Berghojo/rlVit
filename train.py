@@ -321,9 +321,11 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 seq_len = sequence[i].shape[0]
                 rand_perm = torch.randperm(seq_len)
                 sequence[i] = sequence[i, rand_perm]
-                pseudo_labels[i, idx:-1] = (1-label_smooth)/len(pseudo_labels[i, idx:-1])
+                pseudo_labels[i, sequence[i, idx:]] = (1-label_smooth)/len(pseudo_labels[i, idx:-1])
                 if idx != 0:
-                    pseudo_labels[i, :idx] = (label_smooth) / len(pseudo_labels[i, :idx])
+                    pseudo_labels[i, sequence[i, :idx] ] = (label_smooth) / len(pseudo_labels[i, :idx])
+                sequence[i, idx:] = 49
+
                 # for num in range(49):
                 #     if num not in list(sequence[i, :idx]):
                 #         pseudo_labels[i] = num
@@ -349,28 +351,27 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 sequence[:, random_idx] = action
 
-            # for img in range(bs):
-            #
-            #     a = action[img]
-            #     if a != 49:
-            #         r = (a // patches_per_side) * size
-            #         c = (a % patches_per_side) * size
-            #         # if batch_count % 100 == 50 and img == 0:
-            #         #     image = unnormalize(state)
-            #         #     image[img, :, r, c:c + size] = 0
-            #         #     image[img, :, r + size - 1, c:c + size] = 0
-            #         #     image[img, :, r:r + size, c] = 0
-            #         #     image[img, :, r:r + size, c + size - 1] = 0
-            #         #     image[img, 0, r, c:c + size] = 1
-            #         #     image[img, 0, r + size - 1, c:c + size] = 1
-            #         #     image[img, 0, r:r + size, c] = 1
-            #         #     image[img, 0, r:r + size, c + size - 1] = 1
-            #         #     plt.imshow(image[img].permute(1, 2, 0).cpu())
-            #         #     plt.xlabel(action[img].item())
-            #         #     plt.ylabel(pseudo_labels[img].item())
-            #         #     plt.savefig(f"imgs/{img}.jpg")
-            #
-            #         state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+            for img in range(bs):
+
+                a = action[img]
+                if a != 49:
+                    r = (a // patches_per_side) * size
+                    c = (a % patches_per_side) * size
+                    if batch_count % 100 == 50 and img == 0:
+                        image = unnormalize(state)
+                        image[img, :, r, c:c + size] = 0
+                        image[img, :, r + size - 1, c:c + size] = 0
+                        image[img, :, r:r + size, c] = 0
+                        image[img, :, r:r + size, c + size - 1] = 0
+                        image[img, 0, r, c:c + size] = 1
+                        image[img, 0, r + size - 1, c:c + size] = 1
+                        image[img, 0, r:r + size, c] = 1
+                        image[img, 0, r:r + size, c + size - 1] = 1
+                        plt.imshow(image[img].permute(1, 2, 0).cpu())
+                        plt.xlabel(action[img].item())
+                        plt.savefig(f"imgs/{img}.jpg")
+
+                    state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
 
 
 
