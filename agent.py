@@ -11,7 +11,7 @@ class Manager(nn.Module):
         super(Manager, self).__init__()
         self.state_projection = nn.Linear(35 * 35 * 32, 512)
         self.fc = nn.Linear(512, 512)
-        self.fc2 = nn.Linear(512, 512)
+        self.fc2 = nn.LSTMCell(512, 512)
         self.relu = nn.ReLU()
         self.value = nn.Linear(512, 1)
     def freeze(self, freeze):
@@ -19,13 +19,15 @@ class Manager(nn.Module):
         for param in self.parameters():
             param.requires_grad = freeze
 
-    def forward(self, state):
+    def forward(self, state, hidden=None):
         state = self.state_projection(state)
         x = self.relu(self.fc(state))
-        x = self.fc2(x)
-        goal = torch.nn.functional.normalize(x)
+        hidden = self.fc2(x, hidden)
+        _, goal = hidden
+        goal = torch.nn.functional.normalize(goal)
+
         value = self.value(x)
-        return goal, value, state
+        return goal, value, state, hidden
 
 class SingleActionAgent(nn.Module):
     def __init__(self, n_patches):
@@ -37,7 +39,7 @@ class SingleActionAgent(nn.Module):
         self.fc2 = nn.Linear(256, 256)
         self.goal_proj = nn.Linear(512, 256, bias=False)
         self.n_patches = n_patches
-        self.action = nn.Linear(256, (n_patches+1)*256)
+        self.action = nn.LSTMCell(256, (n_patches+1)*256)
         self.value = nn.Linear(256, 1)
         self.relu = nn.ReLU()
         self._reset_parameters()
@@ -51,12 +53,13 @@ class SingleActionAgent(nn.Module):
         for param in self.parameters():
             param.requires_grad = freeze
 
-    def forward(self, x: Tensor, pretrain=False):
+    def forward(self, x: Tensor, pretrain=False, hidden_m=None, hidden=None):
         x = self.conv(x)
         x = self.conv_2(x)
         x = x.flatten(1)
 
-        goal, manager_value, manager_state = self.manager(x)
+        goal, manager_value, manager_state, hidden_manager = self.manager(x, hidden_m)
+        goal_hidden = goal
         if not pretrain:
             goal = goal.detach()
         x = self.relu(self.fc(x))
@@ -64,14 +67,14 @@ class SingleActionAgent(nn.Module):
 
         goal_proj = self.relu(self.goal_proj(goal).unsqueeze(-1))
 
-        action = self.action(x).reshape(-1, self.n_patches+1, 256)
-        action = torch.matmul(action, goal_proj).squeeze(-1)
+        hidden = self.action(x, hidden)
+        _, action = hidden
+        action = torch.matmul(action.reshape(-1, self.n_patches+1, 256), goal_proj).squeeze(-1)
         value = self.value(x)
 
-        return action, value, manager_value, manager_state, goal
+        return action, value, manager_value, manager_state, goal_hidden, hidden, hidden_manager
 
 class SimpleAgent(nn.Module):
-
     def __init__(self, n_patches):
         super(SimpleAgent, self).__init__()
         self.n_actions = n_patches+1
