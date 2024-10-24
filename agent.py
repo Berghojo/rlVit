@@ -37,7 +37,7 @@ class SingleActionAgent(nn.Module):
         self.fc2 = nn.Linear(256, 256)
         self.goal_proj = nn.Linear(512, 256, bias=False)
         self.n_patches = n_patches
-        self.action = nn.Linear(256, (n_patches+1) * 256)
+        self.action = nn.Linear(256, (n_patches+1)*256)
         self.value = nn.Linear(256, 1)
         self.relu = nn.ReLU()
         self._reset_parameters()
@@ -51,16 +51,18 @@ class SingleActionAgent(nn.Module):
         for param in self.parameters():
             param.requires_grad = freeze
 
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor, pretrain=False):
         x = self.conv(x)
         x = self.conv_2(x)
         x = x.flatten(1)
 
         goal, manager_value, manager_state = self.manager(x)
+        if not pretrain:
+            goal = goal.detach()
         x = self.relu(self.fc(x))
         x = self.relu(self.fc2(x))
 
-        goal_proj = self.relu(self.goal_proj(goal.detach()).unsqueeze(-1))
+        goal_proj = self.relu(self.goal_proj(goal).unsqueeze(-1))
 
         action = self.action(x).reshape(-1, self.n_patches+1, 256)
         action = torch.matmul(action, goal_proj).squeeze(-1)

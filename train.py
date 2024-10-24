@@ -321,7 +321,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 seq_len = sequence[i].shape[0]
                 rand_perm = torch.randperm(seq_len)
                 sequence[i] = sequence[i, rand_perm]
-                pseudo_labels[i, idx:] = (1-label_smooth)/len(pseudo_labels[i, idx:])
+                pseudo_labels[i, idx:-1] = (1-label_smooth)/len(pseudo_labels[i, idx:-1])
                 if idx != 0:
                     pseudo_labels[i, :idx] = (label_smooth) / len(pseudo_labels[i, :idx])
                 # for num in range(49):
@@ -343,7 +343,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             #     plt.savefig(f"imgs/og_{i}.jpg")
 
             with (torch.amp.autocast(device_type="cuda", dtype=torch.float16)):
-                logits, value, m_val, _, _ = agent(state.detach())
+                logits, value, m_val, _, _ = agent(state.detach(), pretrain=True)
                 action_probs = torch.softmax(logits, dim=-1)
                 probs, action = torch.max(action_probs, dim=-1)
 
