@@ -112,13 +112,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
-    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
-                                        verbose=verbose)
-    print('[Test] ACC: {:.4f} '.format(accuracy))
-    print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-
-
-    summarize(writer, "test", -1, accuracy)
+    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
+    #                                     verbose=verbose)
+    # print('[Test] ACC: {:.4f} '.format(accuracy))
+    # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+    #
+    #
+    # summarize(writer, "test", -1, accuracy)
 
     model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
 
@@ -327,7 +327,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 if idx != 0:
                     pseudo_labels[i, sequence[i, :idx] ] = (label_smooth) / len(pseudo_labels[i, :idx])
                 sequence[i, idx:] = 49
-
+                print(pseudo_labels[0])
+                raise Exception
                 # for num in range(49):
                 #     if num not in list(sequence[i, :idx]):
                 #         pseudo_labels[i] = num
