@@ -351,27 +351,27 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 sequence[:, random_idx] = action
 
-            for img in range(bs):
-
-                a = action[img]
-                if a != 49:
-                    r = (a // patches_per_side) * size
-                    c = (a % patches_per_side) * size
-                    if batch_count % 100 == 50 and img == 0:
-                        image = unnormalize(state)
-                        image[img, :, r, c:c + size] = 0
-                        image[img, :, r + size - 1, c:c + size] = 0
-                        image[img, :, r:r + size, c] = 0
-                        image[img, :, r:r + size, c + size - 1] = 0
-                        image[img, 0, r, c:c + size] = 1
-                        image[img, 0, r + size - 1, c:c + size] = 1
-                        image[img, 0, r:r + size, c] = 1
-                        image[img, 0, r:r + size, c + size - 1] = 1
-                        plt.imshow(image[img].permute(1, 2, 0).cpu())
-                        plt.xlabel(action[img].item())
-                        plt.savefig(f"imgs/{img}.jpg")
-
-                    state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+            # for img in range(bs):
+            #
+            #     a = action[img]
+            #     if a != 49:
+            #         r = (a // patches_per_side) * size
+            #         c = (a % patches_per_side) * size
+            #         if batch_count % 100 == 50 and img == 0:
+            #             image = unnormalize(state)
+            #             image[img, :, r, c:c + size] = 0
+            #             image[img, :, r + size - 1, c:c + size] = 0
+            #             image[img, :, r:r + size, c] = 0
+            #             image[img, :, r:r + size, c + size - 1] = 0
+            #             image[img, 0, r, c:c + size] = 1
+            #             image[img, 0, r + size - 1, c:c + size] = 1
+            #             image[img, 0, r:r + size, c] = 1
+            #             image[img, 0, r:r + size, c + size - 1] = 1
+            #             plt.imshow(image[img].permute(1, 2, 0).cpu())
+            #             plt.xlabel(action[img].item())
+            #             plt.savefig(f"imgs/{img}.jpg")
+            #
+            #         state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
 
 
 
