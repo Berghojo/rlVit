@@ -6,7 +6,26 @@ from torch import Tensor, device, dtype
 from collections import namedtuple, deque
 
 import numpy as np
+class Manager(nn.Module):
+    def __init__(self):
+        super(Manager, self).__init__()
+        self.state_projection = nn.Linear(35 * 35 * 32, 512)
+        self.fc = nn.Linear(512, 512)
+        self.fc2 = nn.Linear(512, 512)
+        self.relu = nn.ReLU()
+        self.value = nn.Linear(512, 1)
+    def freeze(self, freeze):
+        print("Setting Agent Training to: ", freeze)
+        for param in self.parameters():
+            param.requires_grad = freeze
 
+    def forward(self, state):
+        state = self.state_projection(state)
+        x = self.relu(self.fc(state))
+        x = self.fc2(x)
+        goal = torch.nn.functional.normalize(x)
+        value = self.value(x)
+        return goal, value, state
 
 class SingleActionAgent(nn.Module):
     def __init__(self, n_patches):
@@ -14,8 +33,11 @@ class SingleActionAgent(nn.Module):
         self.conv = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
         self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
         self.fc = nn.Linear(35 * 35 * 32, 256)
+        self.manager = Manager()
         self.fc2 = nn.Linear(256, 256)
-        self.action = nn.Linear(256, n_patches+1)
+        self.goal_proj = nn.Linear(512, 256, bias=False)
+        self.n_patches = n_patches
+        self.action = nn.Linear(256, (n_patches+1)*256)
         self.value = nn.Linear(256, 1)
         self.relu = nn.ReLU()
         self._reset_parameters()
@@ -29,16 +51,24 @@ class SingleActionAgent(nn.Module):
         for param in self.parameters():
             param.requires_grad = freeze
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, pretrain=False):
         x = self.conv(x)
         x = self.conv_2(x)
         x = x.flatten(1)
+
+        goal, manager_value, manager_state = self.manager(x)
+        if not pretrain:
+            goal = goal.detach()
         x = self.relu(self.fc(x))
         x = self.relu(self.fc2(x))
-        action = self.action(x)
+
+        goal_proj = self.relu(self.goal_proj(goal).unsqueeze(-1))
+
+        action = self.action(x).reshape(-1, self.n_patches+1, 256)
+        action = torch.matmul(action, goal_proj).squeeze(-1)
         value = self.value(x)
 
-        return action, value
+        return action, value, manager_value, manager_state, goal
 
 class SimpleAgent(nn.Module):
 
@@ -49,6 +79,7 @@ class SimpleAgent(nn.Module):
         self.value = nn.Linear(in_features=768, out_features=1)
         decoder_layer = nn.TransformerDecoderLayer(d_model=768, nhead=8, norm_first=True, batch_first=True)
         self.decoder = nn.TransformerDecoder(decoder_layer, 6, norm=nn.LayerNorm(768))
+
         self._reset_parameters()
     def _reset_parameters(self):
         for p in self.parameters():

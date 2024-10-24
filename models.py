@@ -155,6 +155,7 @@ class ViT(torch.nn.Module):
     def __init__(self, num_classes, device=None, img_size=224, pretrained=False, reinforce=True):
 
         super(ViT, self).__init__()
+        print("Pretrained: ", pretrained)
         image_size = img_size
         self.patch_sizes = [32]
         self.stages = ((12,),
@@ -195,7 +196,6 @@ class ViT(torch.nn.Module):
             [FusionLayer(s, self.hidden_dims, self.pos_embedding, self.class_token) for s in self.stages[1:]])
 
         self.head = torch.nn.Linear(sum(self.hidden_dims), num_classes)
-        print("Pretrained: ", pretrained)
         if pretrained:
             backbone = vit_b_32(pretrained=True)
             print('Loading pretrained weights...')

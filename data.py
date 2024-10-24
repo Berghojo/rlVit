@@ -6,7 +6,7 @@ from torch.utils.data.distributed import DistributedSampler
 import torch
 import numpy as np
 class Data(Dataset):
-    def __init__(self, size, split=None, imagenet=True):
+    def __init__(self, size, split=None, imagenet=True, data_set="cifar10"):
         normalize = transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)) if imagenet else transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         self.transform = transforms.Compose(
             [
@@ -18,7 +18,7 @@ class Data(Dataset):
 
         self.resize = transforms.Resize(size)
 
-        if split =="train":
+        if split == "train":
 
             self.train_transform = [(transforms.RandomCrop(32, padding=4), 1), (transforms.RandomHorizontalFlip(1), 0.5),
                                     (transforms.RandomVerticalFlip(1), 0.5),
@@ -27,14 +27,20 @@ class Data(Dataset):
                                     ),  0.5),
                                     (transforms.RandomAffine(0, shear=10, scale=(0.8, 1.2)), 0.5)
                                     ]
-            self.set = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                                download=True)
-
+            if data_set == "cifar10":
+                self.set = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                                    download=True)
+            elif data_set == "cifar100":
+                self.set = torchvision.datasets.CIFAR100(root='./data', train=True,
+                                                        download=True)
 
         else:
-            self.set = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                               download=True)
-
+            if data_set == "cifar10":
+                self.set = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                                   download=True)
+            elif data_set == "cifar100":
+                self.set = torchvision.datasets.CIFAR100(root='./data', train=False,
+                                                       download=True)
 
     def __len__(self):
         return len(self.set)
@@ -53,10 +59,11 @@ class Data(Dataset):
 
         return image, label
 
-def get_loader(size, bs, world_size=1, rank=0):
+def get_loader(size, bs, world_size=1, rank=0, data_set="cifar10"):
 
-    train_data = Data(size=size, split="train")
-    test_data = Data(size=size, split="test")
+    train_data = Data(size=size, split="train", data_set=data_set)
+    test_data = Data(size=size, split="test", data_set=data_set)
+
     train_sampler = DistributedSampler(train_data, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     test_sampler = DistributedSampler(test_data, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=bs, num_workers=6, sampler=train_sampler, pin_memory=False)
