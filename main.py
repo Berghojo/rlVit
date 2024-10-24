@@ -22,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument("--pretrain_lr", type=float, help="learning rate", default=1e-6)
     parser.add_argument("--model_lr", type=float, help="learning rate", default=1e-6)
     parser.add_argument("--batch", type=int, help="batch size", default=32)
-    parser.add_argument("--dataset", type=str, help="dataset name", default='cifar10', choices=['cifar10', 'cifar100'])
+    parser.add_argument("--dataset", type=str, help="dataset name", default='cifar100', choices=['cifar10', 'cifar100'])
     parser.add_argument("--img_size", type=int, help="height (width) of images)", default=224)
     parser.add_argument("--logging", type=int, help="number of epochs until loggin starts", default=5)
     parser.add_argument("--warmup", type=int, help="number of warmup", default=10)

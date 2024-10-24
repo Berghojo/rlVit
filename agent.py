@@ -11,7 +11,7 @@ class Manager(nn.Module):
         super(Manager, self).__init__()
         self.state_projection = nn.Linear(35 * 35 * 32, 512)
         self.fc = nn.Linear(512, 512)
-        self.fc2 = nn.LSTMCell(512, 512)
+        self.fc2 = nn.RNNCell(512, 512)
         self.relu = nn.ReLU()
         self.value = nn.Linear(512, 1)
     def freeze(self, freeze):
@@ -22,10 +22,9 @@ class Manager(nn.Module):
     def forward(self, state, hidden=None):
         state = self.state_projection(state)
         x = self.relu(self.fc(state))
-        hidden = self.fc2(x, hidden)
-        _, goal = hidden
-        goal = torch.nn.functional.normalize(goal)
 
+        hidden = self.fc2(x, hidden)
+        goal = torch.nn.functional.normalize(hidden, dim=-1)
         value = self.value(x)
         return goal, value, state, hidden
 
@@ -39,7 +38,7 @@ class SingleActionAgent(nn.Module):
         self.fc2 = nn.Linear(256, 256)
         self.goal_proj = nn.Linear(512, 256, bias=False)
         self.n_patches = n_patches
-        self.action = nn.LSTMCell(256, (n_patches+1)*256)
+        self.action = nn.RNNCell(256, (n_patches+1)*256)
         self.value = nn.Linear(256, 1)
         self.relu = nn.ReLU()
         self._reset_parameters()
@@ -68,11 +67,11 @@ class SingleActionAgent(nn.Module):
         goal_proj = self.relu(self.goal_proj(goal).unsqueeze(-1))
 
         hidden = self.action(x, hidden)
-        _, action = hidden
-        action = torch.matmul(action.reshape(-1, self.n_patches+1, 256), goal_proj).squeeze(-1)
+
+        action = torch.matmul(hidden.reshape(-1, self.n_patches+1, 256), goal_proj).squeeze(-1)
         value = self.value(x)
 
-        return action, value, manager_value, manager_state, goal_hidden, hidden, hidden_manager
+        return action, value, manager_value, manager_state, goal_hidden, hidden.detach(), hidden_manager.detach()
 
 class SimpleAgent(nn.Module):
     def __init__(self, n_patches):

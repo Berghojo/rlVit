@@ -112,13 +112,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
-    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
-    #                                     verbose=verbose)
-    # print('[Test] ACC: {:.4f} '.format(accuracy))
-    # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-    #
-    #
-    # summarize(writer, "test", -1, accuracy)
+    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
+                                        verbose=verbose)
+    print('[Test] ACC: {:.4f} '.format(accuracy))
+    print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+
+
+    summarize(writer, "test", -1, accuracy)
 
     model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
 
@@ -480,10 +480,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             hidden = hidden_m = None
             for s in range(seq_len+1):
                 actions, value, manager_value, manager_state, goal, hidden, hidden_m = agent(states[:, s], hidden=hidden, hidden_m=hidden_m)
-                h, c = hidden
-                hidden = (h.detach(), c.detach())
-                h, c = hidden_m
-                hidden_m = (h.detach(), c.detach())
+                hidden = hidden.detach()
+                hidden_m = hidden_m.detach()
                 manager_values[:, s] = manager_value.squeeze()
                 manager_states[:, s] = manager_state.detach()
                 goals[:, s] = goal
@@ -644,8 +642,9 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     sequence = torch.full((bs, 49), 49, device=inputs.device, dtype=torch.long)
     values = torch.zeros((bs, 49), device=inputs.device)
     size = state.shape[2] // patches_per_side
+    hidden = hidden_m = None
     for i in range(49):
-        logits, value, _, _, _ = agent(state.detach())
+        logits, value, _, hidden, hidden_m = agent(state.detach())
         action_probs = torch.softmax(logits, dim=-1)
         action = torch.argmax(action_probs, dim=-1)
 
