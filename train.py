@@ -450,33 +450,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             manager_states = torch.zeros((bs, seq_len+1, 800), dtype=torch.float, device=device)
             manager_state_diff = torch.zeros_like(manager_states, dtype=torch.float)
             goals = torch.zeros((bs, seq_len+1, 800), dtype=torch.float, device=device)
-            worker_state_diff = torch.zeros_like(manager_states, dtype=torch.float)
-            # for img in range(bs):
-            #     old_states = states[img, :-1]
-            #     new_states = states[img, 1:]
-            #     sequence = action_sequence[img]
-            #     with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
-            #         actions, value, _, _, _ = agent(old_states)
-            #
-            #         _, _, manager_value, manager_state, goal, _, _ = agent(states[img])
-            #     manager_values[img] = manager_value.squeeze()
-            #     manager_states[img] = manager_state
-            #     goals[img] = goal
-            #     with torch.no_grad():
-            #         _, new_value, _, _, _ = agent(new_states)
-            #     new_value = new_value.squeeze()
-            #
-            #
-            #     new_value[reward_mask[img]] = 0
-            #
-            #
-            #     actions = torch.softmax(actions, dim=-1)
-            #     #VisualizeStateActionPair(old_states, sequence)
-            #
-            #     all_action_probs[img] = actions.gather(1, sequence.unsqueeze(-1)).squeeze()
-            #
-            #     all_values[img] = value.squeeze()
-            #     new_values[img] = new_value
+
             hidden = hidden_m = None
             for s in range(seq_len+1):
                 actions, value, manager_value, manager_state, goal, hidden, hidden_m = agent(states[:, s], hidden=hidden, hidden_m=hidden_m)
@@ -487,7 +461,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 goals[:, s] = goal
 
                 value = value.squeeze()
-
+                new_value = value.clone()
 
                 actions = torch.softmax(actions, dim=-1)
                 if s < seq_len:
@@ -495,9 +469,10 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     all_values[:, s] = value
                     sequence = action_sequence[:, s]
                     all_action_probs[:, s] = actions.gather(1, sequence.unsqueeze(-1)).squeeze()
+                    all_action_probs[reward_mask[:, s]] = 0
                 if s > 0:
-                    
-                    new_values[:, s-1] = value.detach()
+                    new_value[reward_mask[:, s-1]] = 0
+                    new_values[:, s-1] = new_value.detach()
 
 
                 #VisualizeStateActionPair(old_states, sequence)
@@ -644,7 +619,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     size = state.shape[2] // patches_per_side
     hidden = hidden_m = None
     for i in range(49):
-        logits, value, _, hidden, hidden_m = agent(state.detach())
+        logits, value, _,_, _, hidden, hidden_m = agent(state.detach())
         action_probs = torch.softmax(logits, dim=-1)
         action = torch.argmax(action_probs, dim=-1)
 
