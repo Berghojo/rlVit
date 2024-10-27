@@ -15,7 +15,7 @@ class SingleActionAgent(nn.Module):
         self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
         self.fc = nn.Linear(35 * 35 * 32, 256)
         self.fc2 = nn.Linear(256, 256)
-        self.action = nn.Linear(256, n_patches+1)
+        self.action = nn.RNNCell(256, n_patches+1)
         self.value = nn.Linear(256, 1)
         self.relu = nn.ReLU()
         self._reset_parameters()
