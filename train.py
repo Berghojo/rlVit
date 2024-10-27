@@ -353,7 +353,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             value_loss = value_criterion(value.squeeze(), rewards.squeeze())
 
             loss = criterion(logits, pseudo_labels.long()) + value_loss
-            if batch_count % 100 == 99:
+            if batch_count % 50 == 49:
 
                 print(loss)
                 print(running_loss)
