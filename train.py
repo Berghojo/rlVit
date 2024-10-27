@@ -302,7 +302,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             input_small = resize(inputs)
             sequence = torch.arange(0, 49, device=device, dtype=torch.long)
             sequence = sequence.repeat(bs, 1)
-            random_idx = torch.randint(0, 49, (bs,), device=device)
+            random_idx = torch.randint(0, 48, (bs,), device=device)
             pseudo_labels = torch.zeros((bs), device=device)
             state = torch.zeros_like(input_small, device=device)
             mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
@@ -322,18 +322,14 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 sequence[i, idx:] = 49
 
-                # for num in range(49):
-                #     if num not in list(sequence[i, :idx]):
-                #         pseudo_labels[i] = num
-                #         break
-
                 for a in range(idx):
                     action = sequence[i, a]
                     r = (action // patches_per_side) * size
                     c = (action % patches_per_side) * size
 
                     state[i, :, r:r + size, c:c + size] = input_small[i, :, r:r + size, c:c + size].clone()
-            # for i in range(bs):
+            # if batch_count % 10 == 0:
+            #     i = 1
             #     plt.imshow(state[i].permute(1, 2, 0).cpu())
             #     plt.savefig(f"imgs/{i}.jpg")
             #     plt.imshow(input_small[i].permute(1, 2, 0).cpu())
@@ -344,27 +340,31 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 action_probs = torch.softmax(logits, dim=-1)
                 probs, action = torch.max(action_probs, dim=-1)
 
-                sequence[:, random_idx] = action
 
-
-            with torch.no_grad():
-                outputs = model(inputs, sequence)
-            probs, preds = torch.max(outputs, -1)
-
-            rewards = (preds == labels).to(torch.half)
+            sequence[:, random_idx] = action
+            #
+            #
+            # with torch.no_grad():
+            #     outputs = model(inputs, sequence)
+            # probs, preds = torch.max(outputs, -1)
+            #
+            # rewards = (preds == labels).to(torch.half)
+            rewards = torch.ones_like(value, device=device)
             value_loss = value_criterion(value.squeeze(), rewards.squeeze())
 
             loss = criterion(logits, pseudo_labels.long()) + value_loss
             if batch_count % 100 == 99:
+
                 print(loss)
                 print(running_loss)
+                print("pred acc: ", correct / n_items)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
             running_loss += (loss.item())
 
-            correct += torch.sum(preds == labels)
+            correct += torch.sum((torch.argmax(logits, -1) == pseudo_labels))
             n_items += inputs.size(0)
             batch_count += 1
         print("running_loss: ", running_loss)
