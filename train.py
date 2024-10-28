@@ -305,7 +305,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             input_small = resize(inputs)
             sequence = torch.arange(0, 49, device=device, dtype=torch.long)
             sequence = sequence.repeat(bs, 1)
-            random_idx = torch.randint(0, 48, (bs,), device=device)
+            random_idx = torch.randint(0, 49, (bs,), device=device)
             pseudo_labels = torch.zeros((bs), device=device)
             state = torch.zeros_like(input_small, device=device)
             mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
@@ -324,13 +324,17 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 pseudo_labels[i] = min(sequence[i, idx:])
 
                 sequence[i, idx:] = 49
-
+                hidden = hidden_m = None
                 for a in range(idx):
                     action = sequence[i, a]
                     r = (action // patches_per_side) * size
                     c = (action % patches_per_side) * size
-
+                    with torch.no_grad():
+                        logits, value, m_value, _, _, hidden, hidden_m = agent(state.detach(),
+                                                                               pretrain=True, hidden=hidden,
+                                                                               hidden_m=hidden_m)
                     state[i, :, r:r + size, c:c + size] = input_small[i, :, r:r + size, c:c + size].clone()
+
             # if batch_count % 10 == 0:
             #     i = 1
             #     plt.imshow(state[i].permute(1, 2, 0).cpu())
@@ -339,7 +343,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             #     plt.savefig(f"imgs/og_{i}.jpg")
 
             with (torch.amp.autocast(device_type="cuda", dtype=torch.float16)):
-                logits, value, m_value, _, _, _, _ = agent(state.detach(), pretrain = True)
+                logits, value, m_value, _, _, _, _ = agent(state.detach(), pretrain=True,
+                                                           hidden=hidden, hidden_m=hidden_m)
                 action_probs = torch.softmax(logits, dim=-1)
                 probs, action = torch.max(action_probs, dim=-1)
 
