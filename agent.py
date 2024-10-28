@@ -51,8 +51,8 @@ class SingleActionAgent(nn.Module):
             param.requires_grad = freeze
 
     def forward(self, x: Tensor, pretrain=False, hidden_m=None, hidden=None):
-        x = self.relu(self.conv(x))
-        x = self.relu(self.conv_2(x))
+        x = self.conv(x)
+        x = self.conv_2(x)
         x = x.flatten(1)
         x = self.relu(self.fc(x))
         goal, manager_value, manager_state, hidden_manager = self.manager(x, hidden_m)
