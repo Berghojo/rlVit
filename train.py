@@ -339,7 +339,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             #     plt.savefig(f"imgs/og_{i}.jpg")
 
             with (torch.amp.autocast(device_type="cuda", dtype=torch.float16)):
-                logits, value, _ = agent(state.detach())
+                logits, value, m_value, _, _, _, _ = agent(state.detach(), pretrain = True)
                 action_probs = torch.softmax(logits, dim=-1)
                 probs, action = torch.max(action_probs, dim=-1)
 
@@ -354,8 +354,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             # rewards = (preds == labels).to(torch.half)
             rewards = torch.ones_like(value, device=device)
             value_loss = value_criterion(value.squeeze(), rewards.squeeze())
-
-            loss = criterion(logits, pseudo_labels.long()) + value_loss
+            m_value_loss = value_criterion(m_value.squeeze(), rewards.squeeze())
+            loss = criterion(logits, pseudo_labels.long()) + value_loss + m_value_loss
             if batch_count % 50 == 49:
 
                 print(loss)
