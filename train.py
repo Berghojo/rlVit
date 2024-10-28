@@ -596,7 +596,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     size = state.shape[2] // patches_per_side
     hidden = hidden_m = None
     for i in range(49):
-        logits, value, _,_, _, hidden, hidden_m = agent(state.detach())
+        logits, value, _,_, _, hidden, hidden_m = agent(state.detach(), hidden, hidden_m)
         action_probs = torch.softmax(logits, dim=-1)
         action = torch.argmax(action_probs, dim=-1)
 
