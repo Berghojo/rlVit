@@ -462,14 +462,15 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             loss, policy_loss, value_loss = loss_func(all_action_probs.squeeze(), all_values.squeeze(),
                                                       discounted_rewards)
+            loss = torch.sum(loss)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
             n_items += inputs.size(0)
-            running_loss += loss.item()
-            p_loss += policy_loss.item()
-            v_loss += value_loss.item()
+            running_loss += torch.mean(loss).item()
+            p_loss += torch.mean(policy_loss).item()
+            v_loss += torch.mean(value_loss).item()
             correct += torch.sum(preds == labels)
             counter += 1
             if counter % 100 == 2:
