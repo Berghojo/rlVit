@@ -52,7 +52,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False,
           alternate=True,
           rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, data_set="cifar10"):
-    #torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
     set_deterministic()
@@ -429,7 +429,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             hidden = hidden_m = None
             for s in range(seq_len+1):
-                actions, value, manager_value, manager_state, goal, hidden, hidden_m = agent(states[:, s], hidden=hidden, hidden_m=hidden_m)
+                actions, value, manager_value, manager_state, goal, hidden, hidden_m = agent(states[:, s], pretrain=False,
+                                                                                             hidden=hidden, hidden_m=hidden_m)
                 hidden = hidden.detach()
                 hidden_m = hidden_m.detach()
                 manager_values[:, s] = manager_value.squeeze()
@@ -498,17 +499,21 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                                                       discounted_rewards, manager_state_diff.detach(), goals,
                                                       manager_values, intrinsic_rewards.detach(), reward_mask)
 
-            scaler.scale(loss).backward()
+            for i, l in enumerate(loss):
+                if i < seq_len-1:
+                    scaler.scale(l).backward(retain_graph=True)
+                else:
+                    scaler.scale(l).backward()
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
             n_items += inputs.size(0)
-            running_loss += loss.item()
-            p_loss += policy_loss.item()
-            v_loss += value_loss.item()
+            running_loss += torch.mean(loss).item()
+            p_loss += torch.mean(policy_loss).item()
+            v_loss += torch.mean(value_loss).item()
             correct += torch.sum(preds == labels)
             counter += 1
-            if counter % 100 == 1:
+            if counter % 2 == 1:
                 print(action_sequence[0], all_action_probs[0])
                 print(f'Reinforce_Loss {loss}')
                 acc = correct / n_items
@@ -656,7 +661,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
         unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
         hidden = hidden_m = None
         for i in range(49):
-            logits, value, _, _, _ , hidden, hidden_m= agent(state.detach(), hidden=hidden, hidden_m = hidden_m)
+            logits, value, _, _, _, hidden, hidden_m= agent(state.detach(), hidden=hidden, hidden_m = hidden_m)
             action_probs = torch.softmax(logits, dim=-1)
             dist = Categorical(action_probs)
             action = dist.sample() #torch.argmax(action_probs, dim=-1)

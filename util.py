@@ -74,11 +74,9 @@ class ManagerLoss(nn.Module):
     def forward(self, rewards, state_diff,  goals, values, reward_mask):
         advantage = rewards - values[:, :-1]
         advantage[reward_mask] = 0
-
-
         loss = advantage.detach() * self.cos(state_diff[:, :-1], goals[:, :-1])
-        value_loss = torch.mean(advantage ** 2)
-        loss = torch.mean(loss)
+        value_loss = torch.mean(advantage ** 2, dim=0)
+        loss = torch.mean(loss, dim=0)
         return loss + self.value_factor * value_loss
 class CustomLoss(nn.Module):
     def __init__(self):
@@ -95,15 +93,16 @@ class CustomLoss(nn.Module):
         #clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-8, 1 - 1e-8)
         manager_loss = self.manager_loss(discounted_rewards, state_diff, goals, manager_values, reward_mask)
-        value_loss = torch.mean(advantage ** 2)
+        value_loss = torch.mean(advantage ** 2, dim=0)
         policy_loss = torch.log(clipped_policy_per_action) * advantage.detach()
         #old_policy_loss = torch.mean(-torch.log(clipped_policy_per_action) * discounted_rewards.detach())
 
-        policy_loss = (-1 * policy_loss).mean()
+        policy_loss = (-1 * policy_loss).mean(dim=0)
 
         # entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
         # entropy_loss = -torch.mean(entropy)
         loss = policy_loss + self.value_factor * value_loss + manager_loss
+        print(loss.shape)
         return loss, policy_loss, value_loss
 
 
