@@ -48,7 +48,7 @@ def set_deterministic(seed=2408):
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False,
           alternate=True,
-          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, dataset="caltech101"):
+          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, dataset="caltech101", agent_batch_size=8):
     #torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
@@ -63,6 +63,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     launch_time = time.strftime("%Y_%m_%d-%H_%M")
     writer = SummaryWriter(log_dir='logs/' + model_name + launch_time)
     train_loader, test_loader = get_loader(img_size, batch_size, dataset=dataset)
+    agent_train_loader, _ = get_loader(img_size, agent_batch_size, dataset=dataset)
     if reinforce:
         print("Reinforce")
         agent = SingleActionAgent(49)
@@ -148,7 +149,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                                           verbose=verbose, scheduler=scheduler)
 
                     summarize(writer, "train", epoch, acc, loss)
-                agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
+                agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(agent_train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
                                                                                       pretrain=False,
