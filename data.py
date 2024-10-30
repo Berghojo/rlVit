@@ -6,7 +6,7 @@ from torch.utils.data.distributed import DistributedSampler
 import torch
 import numpy as np
 class Data(Dataset):
-    def __init__(self, size, split=None, imagenet=True, dataset='calltech', data = None):
+    def __init__(self, size, split=None, imagenet=True, dataset='calltech', data=None):
         normalize = transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)) if imagenet else transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         self.transform = transforms.Compose(
             [
@@ -30,16 +30,24 @@ class Data(Dataset):
             if data is not None:
                 self.set = data
             else:
-                self.set = torchvision.datasets.CIFAR10(root='./data',  train=True,
-                                                           download=True)
+                if dataset == 'cifar10':
+                    self.set = torchvision.datasets.CIFAR10(root='./data',  train=True,
+                                                               download=True)
+                else:
+                    self.set = torchvision.datasets.CIFAR100(root='./data', train=True,
+                                                            download=True)
 
 
         else:
             if data is not None:
                 self.set = data
             else:
-                self.set = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                                        download=True)
+                if dataset == 'cifar10':
+                    self.set = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                                            download=True)
+                else:
+                    self.set = torchvision.datasets.CIFAR100(root='./data', train=False,
+                                                             download=True)
 
     def __len__(self):
         return len(self.set)
@@ -64,15 +72,15 @@ class Data(Dataset):
 
         return image, label
 
-def get_loader(size, bs, world_size=1, rank=0, name="caltech"):
+def get_loader(size, bs, world_size=1, rank=0, dataset="caltech101"):
     train_set = val_set = None
-    if name =="caltech":
+    if dataset =="caltech":
         data = torchvision.datasets.Caltech101(root='./data', download=True)
         length = len(data)
         train_len = int(length * 0.7)
         train_set, val_set = torch.utils.data.random_split(data, [train_len, length-train_len])
-    train_data = Data(size=size, split="train", data=train_set)
-    test_data = Data(size=size, split="test", data=val_set)
+    train_data = Data(size=size, split="train", data=train_set, dataset=dataset)
+    test_data = Data(size=size, split="test", data=val_set, dataset=dataset)
     train_sampler = DistributedSampler(train_data, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     test_sampler = DistributedSampler(test_data, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=bs, num_workers=6, sampler=train_sampler, pin_memory=False)
