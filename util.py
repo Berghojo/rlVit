@@ -70,7 +70,7 @@ class PositionalEncodingPermute1D(nn.Module):
 class CustomLoss(nn.Module):
     def __init__(self):
         super(CustomLoss, self).__init__()
-        self.value_factor = 0.5
+        self.value_factor = 1
         self.entropy_factor = 0.01
 
     def forward(self, policy_per_action, values, discounted_rewards):
@@ -79,16 +79,18 @@ class CustomLoss(nn.Module):
         #clipped_policy = torch.clip(policy, 1e-5, 1 - 1e-5)
         clipped_policy_per_action = torch.clip(policy_per_action, 1e-8, 1 - 1e-8)
 
-        value_loss = torch.mean(advantage ** 2, dim=0)
+        value_loss = torch.sum(advantage ** 2, dim=0) / torch.count_nonzero(advantage, dim=0)
         policy_loss = torch.log(clipped_policy_per_action) * advantage.detach()
         #old_policy_loss = torch.mean(-torch.log(clipped_policy_per_action) * discounted_rewards.detach())
 
-        policy_loss = (-1 * policy_loss).mean(dim=0)
+        policy_loss = (-1 * policy_loss)
 
+        policy_loss = torch.sum(policy_loss, dim=0) / torch.count_nonzero(policy_loss, dim=0)
         # entropy = -(torch.sum(policy * torch.log(clipped_policy), dim=1))
         
         # entropy_loss = -torch.mean(entropy)
         loss = policy_loss + self.value_factor * value_loss
+
         return loss, policy_loss, value_loss
 
 

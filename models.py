@@ -160,7 +160,7 @@ class ViT(torch.nn.Module):
         self.stages = ((12,),
                        )
 
-        print(self.stages)
+        print(self.stages, pretrained)
         seq_lens = [(image_size // patch_size) ** 2 + 1 for patch_size in self.patch_sizes]
         self.n_patch = seq_lens[0]
 
@@ -195,7 +195,7 @@ class ViT(torch.nn.Module):
             [FusionLayer(s, self.hidden_dims, self.pos_embedding, self.class_token) for s in self.stages[1:]])
 
         self.head = torch.nn.Linear(sum(self.hidden_dims), num_classes)
-        if pretrained and False:
+        if pretrained:
             backbone = vit_b_32(pretrained=True)
             print('Loading pretrained weights...')
             start = 0

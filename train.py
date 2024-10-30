@@ -106,7 +106,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         model = ViT(n_classes, device=device, pretrained=pretrained, reinforce=reinforce)
 
         model = model.to(rank)
-        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
+        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
     class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
                                         verbose=verbose)
     print('[Test] ACC: {:.4f} '.format(accuracy))
@@ -142,7 +142,12 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                 summarize(writer, "train", epoch, acc, loss)
 
             else:
+                if alternate:
+                    loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
+                                          train_agent=False,
+                                          verbose=verbose, scheduler=scheduler)
 
+                    summarize(writer, "train", epoch, acc, loss)
                 agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(train_loader, device, model,
                                                                                       agent_optimizer, scaler, agent,
                                                                                       train_agent=True, verbose=verbose,
@@ -152,12 +157,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
                 summarize_agent(writer, "train_agent", epoch, cum_reward, value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
-                if alternate:
-                    loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
-                                          train_agent=False,
-                                          verbose=verbose, scheduler=scheduler)
 
-                    summarize(writer, "train", epoch, acc, loss)
             #summarize(writer, "train", epoch, acc, loss)
         else:
             loss, acc = train_vit(train_loader, device, model, model_optimizer, scaler, verbose=verbose)
@@ -378,7 +378,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         k_step = 5
         pos_reward = 1
         neg_reward = 0
-        gamma = 0.99
+        gamma = 0.9
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
         unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
@@ -427,13 +427,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 # VisualizeStateActionPair(old_states, sequence)
 
-            outputs = model(inputs, action_sequence)
-            probs, preds = torch.max(outputs, -1)
-            # reward = (preds == labels).long().squeeze()
 
-            cum_sum += torch.sum(rewards)
-
-            new_values[reward_mask] = 0
+            #reward = (preds == labels).long().squeeze()
 
             outputs = model(inputs, action_sequence)
             probs, preds = torch.max(outputs, -1)
@@ -462,8 +457,12 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             loss, policy_loss, value_loss = loss_func(all_action_probs.squeeze(), all_values.squeeze(),
                                                       discounted_rewards)
-            loss = torch.sum(loss)
-            scaler.scale(loss).backward()
+            #loss = torch.sum(loss)
+            for e, l in enumerate(loss):
+                if e < loss.shape[0]:
+                    scaler.scale(l).backward(retain_graph=True)
+                else:
+                    scaler.scale(l).backward(retain_graph=False)
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
@@ -473,9 +472,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             v_loss += torch.mean(value_loss).item()
             correct += torch.sum(preds == labels)
             counter += 1
-            if counter % 100 == 2:
+            if counter % 5 == 2:
                 print(action_sequence[0], all_action_probs[0])
-                print(f'Reinforce_Loss {loss}')
+                print(f'Reinforce_Loss {policy_loss}')
                 acc = correct / n_items
                 print(f'Acc: {acc}')
 
@@ -553,29 +552,36 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
     std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
     normalize = Normalize(mean=mean, std=std)
-    unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
+
     state = normalize(state)
     completeness_mask = torch.zeros(bs).byte().to(inputs.device)
     sequence = torch.full((bs, 49), 49, device=inputs.device, dtype=torch.long)
-    values = torch.zeros((bs, 49), device=inputs.device)
+
     size = state.shape[2] // patches_per_side
     hidden = None
     for i in range(49):
-        logits, value, hidden = agent(state.detach(), hidden)
+        logits, _, hidden = agent(state.detach(), hidden)
         action_probs = torch.softmax(logits, dim=-1)
-        action = torch.argmax(action_probs, dim=-1)
+        dist = Categorical(action_probs)
+        action = dist.sample()
         action[completeness_mask.bool()] = 49
         sequence[:, i] = action
         completeness_mask = completeness_mask | torch.eq(action, 49).byte()
-        values[:, i] = value.squeeze()
         for img in range(bs):
             a = action[img]
             if a != 49:
                 r = (a // patches_per_side) * size
                 c = (a % patches_per_side) * size
                 state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+                # if img == 0:
+                #     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
+                #     image = unnormalize(state)
+                #     plt.imshow(image[0].permute(1, 2, 0).cpu())
+                #     plt.xlabel(a.item())
+                #     plt.savefig(f"imgs/{img}_max__new.jpg")
 
         # if bs == 1:
+        #     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
         #     image = unnormalize(state)
         #
         #     image[0, :, r, c:c + size] = 0
@@ -593,34 +599,32 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     return sequence
 
 
-def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay=None, k_steps=1):
-    with torch.no_grad():
-        resize = Resize(35)
-        patches_per_side = 7
-        bs = inputs.shape[0]
+def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1):
 
-        input_small = resize(inputs)
-        state = torch.zeros_like(input_small, device=inputs.device)
-        mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
-        std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
-        normalize = Normalize(mean=mean, std=std)
-        state = normalize(state)
-        states = torch.zeros_like(input_small, device=inputs.device).unsqueeze(1).repeat(1, 50, 1, 1, 1)
-        completeness_mask = torch.zeros(bs).byte().to(inputs.device)
-        rewards = torch.zeros((bs, 49), device=inputs.device)
-        og_baseline = model(inputs, None).detach()
-        baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+    resize = Resize(35)
+    patches_per_side = 7
+    bs = inputs.shape[0]
 
-        states[:, 0] = state
-
-        sequence = torch.full((bs, 49), 49, device=inputs.device, dtype=torch.long)
-        sequence_probs = torch.zeros((bs, 49, 50), device=inputs.device)
-        values = torch.zeros((bs, 49), device=inputs.device)
-        size = state.shape[2] // patches_per_side
-        unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
-        hidden = None
-        for i in range(49):
-
+    input_small = resize(inputs)
+    state = torch.zeros_like(input_small, device=inputs.device)
+    mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
+    std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
+    normalize = Normalize(mean=mean, std=std)
+    state = normalize(state)
+    states = torch.zeros_like(input_small, device=inputs.device).unsqueeze(1).repeat(1, 50, 1, 1, 1)
+    completeness_mask = torch.zeros(bs).byte().to(inputs.device)
+    rewards = torch.zeros((bs, 49), device=inputs.device)
+    #og_baseline = model(inputs, None).detach()
+    #baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
+    states[:, 0] = state
+    sequence = torch.full((bs, 49), 49, device=inputs.device, dtype=torch.long)
+    sequence_probs = torch.zeros((bs, 49, 50), device=inputs.device)
+    values = torch.zeros((bs, 49), device=inputs.device)
+    size = state.shape[2] // patches_per_side
+    unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
+    hidden = None
+    for i in range(49):
+        with torch.no_grad():
             logits, value, hidden = agent(state.detach(), hidden)
             action_probs = torch.softmax(logits, dim=-1)
             dist = Categorical(action_probs)
@@ -628,9 +632,6 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
             completeness_mask = completeness_mask | torch.eq(action, 49).byte()
             sequence_probs[:, i] = action_probs
             action[completeness_mask.bool()] = 49
-
-
-
 
             if i > 0:
                 last_token_mask = (sequence[:, i - 1] < 49)
@@ -647,23 +648,25 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, exp_replay
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
 
-        outputs = model(inputs, sequence)
-        probs, preds = torch.max(outputs, -1)
-        reward = (preds == labels).long().squeeze()
+    outputs = model(inputs, sequence)
+    probs, preds = torch.max(outputs, -1)
+    reward = (preds == labels).long().squeeze()
 
 
-        if not correct_only:
-            normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
-            reward = (normal - baseline).squeeze()
-            reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
-        insert_mask = (sequence == 50)
-        not_yet_done = ~torch.any(insert_mask, dim=-1)
-        insert_mask[not_yet_done, -1] = True
+    # if not correct_only:
+    #     normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
+    #     reward = (normal - baseline).squeeze()
+    #     reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
+    insert_mask = (sequence == 50)
+    not_yet_done = ~torch.any(insert_mask, dim=-1)
+    insert_mask[not_yet_done, -1] = True
 
-        rewards[insert_mask] = reward.float()
+    rewards[insert_mask] = reward.float()
 
-        return preds, sequence_probs, probs, rewards, sequence, states
+    return preds, sequence_probs, probs, rewards, sequence, states
 
+def step(states, rewards, sequence, preds, values, i):
+    pass
 
 
 
