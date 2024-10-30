@@ -74,7 +74,7 @@ class Data(Dataset):
 
 def get_loader(size, bs, world_size=1, rank=0, dataset="caltech101"):
     train_set = val_set = None
-    if dataset =="caltech":
+    if dataset =="caltech101":
         data = torchvision.datasets.Caltech101(root='./data', download=True)
         length = len(data)
         train_len = int(length * 0.7)
