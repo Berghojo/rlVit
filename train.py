@@ -309,7 +309,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             normalize = Normalize(mean=mean, std=std)
             state = normalize(state)
             unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
-
+            hidden_last = torch.zeros((bs, 50), device=device)
             size = state.shape[2] // patches_per_side
 
             for i, idx in enumerate(random_idx):
@@ -326,9 +326,11 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     r = (action // patches_per_side) * size
                     c = (action % patches_per_side) * size
                     with torch.no_grad():
-                        _, _, hidden = agent(state.detach(), hidden)
+                        _, _, hidden = agent(state[i].detach().unsqueeze(0), hidden)
 
                     state[i, :, r:r + size, c:c + size] = input_small[i, :, r:r + size, c:c + size].clone()
+                if hidden is not None:
+                    hidden_last[i] = hidden
             # if batch_count % 10 == 0:
             #     i = 1
             #     plt.imshow(state[i].permute(1, 2, 0).cpu())
@@ -337,11 +339,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             #     plt.savefig(f"imgs/og_{i}.jpg")
 
             with (torch.amp.autocast(device_type="cuda", dtype=torch.float16)):
-                logits, value, _ = agent(state.detach(), hidden)
+                logits, value, _ = agent(state.detach(), hidden_last)
                 action_probs = torch.softmax(logits, dim=-1)
                 probs, action = torch.max(action_probs, dim=-1)
-
-
             sequence[:, random_idx] = action
             #
             #
@@ -395,7 +395,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
 
-            preds, action_probs, model_probs, rewards, action_sequence, states = rl_training(agent, bs, inputs, labels,
+            preds, action_probs, model_probs, rewards, action_sequence, states, hidden_states = rl_training(agent, bs, inputs, labels,
                                                                                              model,
                                                                              correct_only=not use_baseline)
 
@@ -410,9 +410,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             all_values = torch.zeros_like(rewards, dtype=torch.float)
             new_values = torch.zeros_like(rewards, dtype=torch.float)
             seq_len = rewards.shape[1]
-            hidden = None
+
             for s in range(seq_len + 1):
-                actions, value, hidden = agent(states[:, s], hidden=hidden)
+                actions, value, hidden = agent(states[:, s], hidden=hidden_states[:, s])
 
                 value = value.squeeze()
 
@@ -562,7 +562,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     sequence = torch.full((bs, 49), 49, device=inputs.device, dtype=torch.long)
 
     size = state.shape[2] // patches_per_side
-    hidden = None
+    hidden = torch.zeros((bs, 50), device=inputs.device)
     for i in range(49):
         logits, _, hidden = agent(state.detach(), hidden)
         action_probs = torch.softmax(logits, dim=-1)
@@ -626,10 +626,12 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
     values = torch.zeros((bs, 49), device=inputs.device)
     size = state.shape[2] // patches_per_side
     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
-    hidden = None
+    hidden_states = torch.zeros((bs, 50, 50), device=inputs.device)
+    hidden = torch.zeros((bs, 50), device=inputs.device)
     for i in range(49):
         with torch.no_grad():
             logits, value, hidden = agent(state.detach(), hidden)
+            hidden_states[:, i+1] = hidden
             action_probs = torch.softmax(logits, dim=-1)
             dist = Categorical(action_probs)
             action = dist.sample() #torch.argmax(action_probs, dim=-1)
@@ -667,7 +669,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
 
     rewards[insert_mask] = reward.float()
 
-    return preds, sequence_probs, probs, rewards, sequence, states
+    return preds, sequence_probs, probs, rewards, sequence, states,hidden_states
 
 def step(states, rewards, sequence, preds, values, i):
     pass
