@@ -378,9 +378,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         p_loss = 0
         v_loss = 0
         k_step = 5
-        pos_reward = 1
+        pos_reward = 1/49
         neg_reward = 0
-        gamma = 0.9
+        gamma = 0.99
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
         unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
@@ -396,7 +396,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
 
-            preds, action_probs, model_probs, rewards, action_sequence, states, hidden_states = rl_training(agent, bs, inputs, labels,
+            preds, action_probs, model_probs, rewards, action_sequence, states = rl_training(agent, bs, inputs, labels,
                                                                                              model,
                                                                              correct_only=not use_baseline)
 
@@ -411,9 +411,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             all_values = torch.zeros_like(rewards, dtype=torch.float)
             new_values = torch.zeros_like(rewards, dtype=torch.float)
             seq_len = rewards.shape[1]
-
+            hidden = torch.zeros((bs, 50), device=device)
             for s in range(seq_len + 1):
-                actions, value, hidden = agent(states[:, s], hidden=hidden_states[:, s])
+                actions, value, hidden = agent(states[:, s], hidden=hidden)
 
                 value = value.squeeze()
 
@@ -440,7 +440,6 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             cum_sum += torch.sum(rewards)
 
             new_values[reward_mask] = 0
-            seq_len = rewards.shape[1]
 
             for i in range(seq_len):
                 if i < (seq_len - (k_step-1)):
@@ -450,11 +449,12 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                     v = new_values[:, i + k_step-1].detach() * gamma_tensor[:, -1]
 
 
-                    discounted_rewards[:, i] = (v + gamma_sum)
+                    discounted_rewards[:, i] =  gamma_sum + v
 
                 else:
 
                     discounted_rewards[:, i] = torch.sum(rewards[:, i:] * gamma_tensor[:, :seq_len - i], dim=-1)
+
             all_values[reward_mask] = 0
             all_action_probs[reward_mask] = 0
 
@@ -627,12 +627,12 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
     values = torch.zeros((bs, 49), device=inputs.device)
     size = state.shape[2] // patches_per_side
     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
-    hidden_states = torch.zeros((bs, 50, 50), device=inputs.device)
+
     hidden = torch.zeros((bs, 50), device=inputs.device)
     for i in range(49):
         with torch.no_grad():
             logits, value, hidden = agent(state.detach(), hidden)
-            hidden_states[:, i+1] = hidden
+
             action_probs = torch.softmax(logits, dim=-1)
             dist = Categorical(action_probs)
             action = dist.sample() #torch.argmax(action_probs, dim=-1)
@@ -654,7 +654,10 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
                     c = (a % patches_per_side) * size
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
-
+            outputs = model(inputs, sequence)
+            probs, preds = torch.max(outputs, -1)
+            reward = (preds == labels).long().squeeze()
+            rewards[:, i] = reward.float()
     outputs = model(inputs, sequence)
     probs, preds = torch.max(outputs, -1)
     reward = (preds == labels).long().squeeze()
@@ -670,7 +673,7 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
 
     rewards[insert_mask] = reward.float()
 
-    return preds, sequence_probs, probs, rewards, sequence, states,hidden_states
+    return preds, sequence_probs, probs, rewards, sequence, states
 
 def step(states, rewards, sequence, preds, values, i):
     pass
