@@ -17,7 +17,7 @@ class SingleActionAgent(nn.Module):
         self.fc2 = nn.Linear(256, 256)
         self.action = nn.RNNCell(256, n_patches+1)
         self.value = nn.Linear(256, 1)
-        self.relu = nn.ReLU()
+        self.relu = nn.GELU()
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -35,7 +35,7 @@ class SingleActionAgent(nn.Module):
         x = x.flatten(1)
         x = self.relu(self.fc(x))
         x = self.relu(self.fc2(x))
-        action = self.action(x)
+        action = self.action(x, hidden)
         value = self.value(x)
         return action, value, action.detach()
 

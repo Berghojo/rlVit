@@ -81,7 +81,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = agent.to(device)
         agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
-        agent_optimizer = optim.Adam(agent.parameters(), lr=pretrain_lr)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=agent_lr)
         if (pretraining_duration > 0):
             agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, pretrain_lr*5, epochs=pretraining_duration,
                                                             steps_per_epoch=len(train_loader))
@@ -566,9 +566,10 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     hidden = torch.zeros((bs, 50), device=inputs.device)
     for i in range(49):
         logits, _, hidden = agent(state.detach(), hidden)
+
         action_probs = torch.softmax(logits, dim=-1)
-        dist = Categorical(action_probs)
-        action = dist.sample()
+
+        action = torch.argmax(action_probs, dim=-1)
         action[completeness_mask.bool()] = 49
         sequence[:, i] = action
         completeness_mask = completeness_mask | torch.eq(action, 49).byte()
