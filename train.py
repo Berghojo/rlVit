@@ -464,13 +464,16 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             loss, policy_loss, value_loss, advantage = loss_func(all_action_probs.squeeze(), all_values.squeeze(),
                                                       discounted_rewards, ~reward_mask)
 
-            loss = torch.sum(loss)
-            scaler.scale(loss).backward()
-            # for e, l in enumerate(loss):
-            #     if e < loss.shape[0]:
-            #         scaler.scale(l).backward(retain_graph=True)
-            #     else:
-            #         scaler.scale(l).backward(retain_graph=False)
+            # loss = torch.sum(loss)
+            # scaler.scale(loss).backward()
+            for e, l in enumerate(loss):
+                if e < loss.shape[0]:
+                    scaler.scale(l).backward(retain_graph=True)
+
+
+                else:
+                    scaler.scale(l).backward(retain_graph=False)
+
 
             scaler.step(optimizer)
             scaler.update()
