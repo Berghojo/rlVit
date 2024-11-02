@@ -81,7 +81,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
         agent = agent.to(device)
         agent = DDP(agent, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
-        agent_optimizer = optim.Adam(agent.parameters(), lr=agent_lr)
+        agent_optimizer = optim.Adam(agent.parameters(), lr=pretrain_lr)
         if (pretraining_duration > 0):
             agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, pretrain_lr*5, epochs=pretraining_duration,
                                                             steps_per_epoch=len(train_loader))
