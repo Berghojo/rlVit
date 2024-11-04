@@ -314,15 +314,16 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
 
             seq_len = sequence.shape[1]
-            rand_perm = torch.randperm(seq_len)
-            sequence = sequence[:, rand_perm]
+            for b in range(bs):
+                rand_perm = torch.randperm(seq_len)
+                sequence[b] = sequence[b, rand_perm]
 
 
             # if len(sequence[i, :idx]) > 0:
             #     pseudo_labels[i, sequence[i, :idx]] = (1-label_smoothing) / len(sequence[i, :idx])
             # else:
             #     pseudo_labels[i, sequence[i, idx:]] = 1 / len(sequence[i, idx:])
-            #sequence[:, random_idx:] = 49
+
             hidden = agent.module.init_state(bs)
             init = random_idx
             for a in range(init):
@@ -341,11 +342,17 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             #     plt.savefig(f"imgs/{i}.jpg")
             #     plt.imshow(input_small[i].permute(1, 2, 0).cpu())
             #     plt.savefig(f"imgs/og_{i}.jpg")
-            pseudo_labels = torch.min(sequence[:, random_idx:], dim=-1).values
-            for _ in range(seq_len-init):
+
+
+            ls = torch.sort(sequence[:, random_idx:], dim=-1).values
+
+
+            sequence[:, random_idx:] = 49
+            for f in range(seq_len-init):
 
                 optimizer.zero_grad(set_to_none=True)
                 with (torch.amp.autocast(device_type="cuda", dtype=torch.float16)):
+                    pseudo_labels = ls[:, f]
                     logits, value, hidden = agent(state.detach(), hidden)
                     action_probs = torch.softmax(logits, dim=-1)
                     probs, action = torch.max(action_probs, dim=-1)
@@ -358,7 +365,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 with torch.no_grad():
                     outputs = model(inputs, sequence)
                 probs, preds = torch.max(outputs, -1)
-
+                sequence[:, random_idx] = pseudo_labels
                 rewards = (preds == labels).to(torch.half)
                 #rewards = torch.ones_like(value, device=device)
                 value_loss = value_criterion(value.squeeze(), rewards.squeeze())
@@ -368,7 +375,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 n_items += inputs.size(0)
                 running_loss += (loss.item())
                 random_idx += 1
-                pseudo_labels = pseudo_labels + 1
+
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
