@@ -19,6 +19,7 @@ class SingleActionAgent(nn.Module):
         self.value = nn.Linear(50, 1)
         self.relu = nn.ReLU()
         self._reset_parameters()
+        self.dout = nn.Dropout(p=0.5)
 
     def _reset_parameters(self):
         for p in self.parameters():
@@ -37,7 +38,7 @@ class SingleActionAgent(nn.Module):
     def forward(self, x: Tensor, hidden) -> Tensor:
         x = self.conv(x)
         x = self.conv_2(x)
-        x = x.flatten(1)
+        x = self.dout(x.flatten(1))
         x = self.relu(self.fc(x))
         x = self.relu(self.fc2(x))
         h_0, c_0 = hidden

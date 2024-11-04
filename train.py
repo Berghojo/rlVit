@@ -393,10 +393,11 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         cum_sum = 0
         p_loss = 0
         v_loss = 0
-        k_step = 1
+        k_step = 7
+
         pos_reward = 1
-        neg_reward = 0
-        gamma = 0.99
+        neg_reward = -0.01
+        gamma = 0.9
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
         unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
