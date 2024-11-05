@@ -301,8 +301,9 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             labels = labels.to(device)
             input_small = resize(inputs)
             sequence = torch.arange(0, 49, device=device, dtype=torch.long)
+            seq_len = sequence.shape[1]
             sequence = sequence.repeat(bs, 1)
-            random_idx = random.randint(0,bs-1)
+            random_idx = random.randint(0, seq_len-1)
             state = torch.zeros_like(input_small, device=device)
             mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
             std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
@@ -313,7 +314,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             size = state.shape[2] // patches_per_side
 
 
-            seq_len = sequence.shape[1]
+
             for b in range(bs):
                 rand_perm = torch.randperm(seq_len)
                 sequence[b] = sequence[b, rand_perm]
@@ -672,11 +673,11 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
                     r = (a // patches_per_side) * size
                     c = (a % patches_per_side) * size
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
-            # states[:, i + 1] = state
-            # outputs = model(inputs, sequence)
-            # probs, preds = torch.max(outputs, -1)
-            # reward = (preds == labels).long().squeeze()
-            # rewards[:, i] = reward.float()
+            states[:, i + 1] = state
+            outputs = model(inputs, sequence)
+            probs, preds = torch.max(outputs, -1)
+            reward = (preds == labels).long().squeeze()
+            rewards[:, i] = reward.float()
     outputs = model(inputs, sequence)
     probs, preds = torch.max(outputs, -1)
     reward = (preds == labels).long().squeeze()
@@ -686,11 +687,11 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
     #     normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
     #     reward = (normal - baseline).squeeze()
     #     reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
-    insert_mask = (sequence == 50)
-    not_yet_done = ~torch.any(insert_mask, dim=-1)
-    insert_mask[not_yet_done, -1] = True
-
-    rewards[insert_mask] = reward.float()
+    # insert_mask = (sequence == 50)
+    # not_yet_done = ~torch.any(insert_mask, dim=-1)
+    # insert_mask[not_yet_done, -1] = True
+    #
+    # rewards[insert_mask] = reward.float()
 
     return preds, sequence_probs, probs, rewards, sequence, states
 
