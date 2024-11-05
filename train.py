@@ -301,7 +301,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             labels = labels.to(device)
             input_small = resize(inputs)
             sequence = torch.arange(0, 49, device=device, dtype=torch.long)
-            seq_len = sequence.shape[1]
+            seq_len = 49
             sequence = sequence.repeat(bs, 1)
             random_idx = random.randint(0, seq_len-1)
             state = torch.zeros_like(input_small, device=device)
