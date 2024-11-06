@@ -127,11 +127,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     for epoch in range(max_epochs):
         if reinforce:
             if epoch == pretraining_duration:
-                for g in agent_optimizer.param_groups:
-                    g['lr'] = agent_lr
-                agent_scheduler = optim.lr_scheduler.OneCycleLR(agent_optimizer, agent_lr*5,
-                                                                epochs=max_epochs - pretraining_duration,
-                                                                steps_per_epoch=len(train_loader) * 49)
+
+                agent_optimizer = optim.RMSprop(agent.parameters(), lr=pretrain_lr)
+                agent_scheduler = optim.lr_scheduler.ReduceLROnPlateau(agent_optimizer)
                 print("changed lr")
             if epoch < pretraining_duration:
 
