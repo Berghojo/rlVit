@@ -488,7 +488,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             scaler.step(optimizer)
             scaler.update()
-            scheduler.step()
+            scheduler.step(loss)
             n_items += inputs.size(0)
             running_loss += torch.mean(loss).item()
             p_loss = torch.mean(policy_loss).item()
