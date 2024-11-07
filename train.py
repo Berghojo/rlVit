@@ -375,6 +375,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 running_loss += (loss.item())
                 random_idx += 1
 
+
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
@@ -672,10 +673,10 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
                     c = (a % patches_per_side) * size
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
-            outputs = model(inputs, sequence)
-            probs, preds = torch.max(outputs, -1)
-            reward = (preds == labels).long().squeeze()
-            rewards[:, i] = reward.float()
+            # outputs = model(inputs, sequence)
+            # probs, preds = torch.max(outputs, -1)
+            # reward = (preds == labels).long().squeeze()
+            # rewards[:, i] = reward.float()
     outputs = model(inputs, sequence)
     probs, preds = torch.max(outputs, -1)
     reward = (preds == labels).long().squeeze()
@@ -685,11 +686,11 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
     #     normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
     #     reward = (normal - baseline).squeeze()
     #     reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
-    # insert_mask = (sequence == 50)
-    # not_yet_done = ~torch.any(insert_mask, dim=-1)
-    # insert_mask[not_yet_done, -1] = True
-    #
-    # rewards[insert_mask] = reward.float()
+    insert_mask = (sequence == 50)
+    not_yet_done = ~torch.any(insert_mask, dim=-1)
+    insert_mask[not_yet_done, -1] = True
+
+    rewards[insert_mask] = reward.float()
 
     return preds, sequence_probs, probs, rewards, sequence, states
 
