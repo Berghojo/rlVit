@@ -37,7 +37,7 @@ class SingleActionAgent(nn.Module):
         )
     def forward(self, x: Tensor, hidden) -> Tensor:
         x = self.relu(self.conv(x))
-        x = self.relu(self.conv_2(x))
+        x = self.dout(self.relu(self.conv_2(x)))
         x = x.flatten(1)
 
         x = self.relu(self.fc(x))
