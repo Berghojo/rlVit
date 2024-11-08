@@ -108,14 +108,14 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
-    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
+    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent,
     #                                     verbose=verbose)
     # print('[Test] ACC: {:.4f} '.format(accuracy))
     # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
     #
     #
     # summarize(writer, "test", -1, accuracy)
-    #
+
     model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
 
     scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, model_lr * 5, steps_per_epoch=len(train_loader),
@@ -139,6 +139,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                                      scheduler=agent_scheduler)
                 torch.save(agent.state_dict(), f"saves/base_{model_name}_agent_@{epoch}.pth")
                 summarize(writer, "train", epoch, acc, loss)
+                scheduler.step(acc)
 
             else:
                 if alternate:
@@ -393,7 +394,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         cum_sum = 0
         p_loss = 0
         v_loss = 0
-        k_step = 7
+        k_step = 5
 
         pos_reward = 1
         neg_reward = -0.01
@@ -489,7 +490,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             scaler.step(optimizer)
             scaler.update()
-            scheduler.step(loss)
+
             n_items += inputs.size(0)
             running_loss += torch.mean(loss).item()
             p_loss = torch.mean(policy_loss).item()
@@ -499,7 +500,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             if counter % 50 == 0:
                 print("loss")
                 #print(f'Rewards {advantage[2]} \n {discounted_rewards[2]} \n {rewards[2]} \n {policy_loss[2]} \n {(preds == labels)[2]}')
-                print(action_sequence[0], all_action_probs[0])
+                print(action_sequence[0], all_action_probs[0], (preds[0] == labels[0]))
                 print(f'Reinforce_Loss {policy_loss}')
                 acc = correct / n_items
                 print(f'Acc: {acc}')
@@ -586,8 +587,9 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
         logits, _, hidden = agent(state.detach(), hidden)
 
         action_probs = torch.softmax(logits, dim=-1)
-
-        action = torch.argmax(action_probs, dim=-1)
+        dist = Categorical(action_probs)
+        action = dist.sample()
+        #action = torch.argmax(action_probs, dim=-1)
         action[completeness_mask.bool()] = 49
         sequence[:, i] = action
         completeness_mask = completeness_mask | torch.eq(action, 49).byte()
@@ -673,24 +675,24 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
                     c = (a % patches_per_side) * size
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
-            # outputs = model(inputs, sequence)
-            # probs, preds = torch.max(outputs, -1)
-            # reward = (preds == labels).long().squeeze()
-            # rewards[:, i] = reward.float()
-    outputs = model(inputs, sequence)
-    probs, preds = torch.max(outputs, -1)
-    reward = (preds == labels).long().squeeze()
+            outputs = model(inputs, sequence)
+            probs, preds = torch.max(outputs, -1)
+            reward = (preds == labels).long().squeeze()
+            rewards[:, i] = reward.float()
+    # outputs = model(inputs, sequence)
+    # probs, preds = torch.max(outputs, -1)
+    # reward = (preds == labels).long().squeeze()
 
 
     # if not correct_only:
     #     normal = torch.gather(torch.softmax(outputs, dim=-1), -1, labels.unsqueeze(-1))
     #     reward = (normal - baseline).squeeze()
     #     reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
-    insert_mask = (sequence == 50)
-    not_yet_done = ~torch.any(insert_mask, dim=-1)
-    insert_mask[not_yet_done, -1] = True
-
-    rewards[insert_mask] = reward.float()
+    # insert_mask = (sequence == 50)
+    # not_yet_done = ~torch.any(insert_mask, dim=-1)
+    # insert_mask[not_yet_done, -1] = True
+    #
+    # rewards[insert_mask] = reward.float()
 
     return preds, sequence_probs, probs, rewards, sequence, states
 
