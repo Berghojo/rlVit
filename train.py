@@ -48,7 +48,7 @@ def set_deterministic(seed=2408):
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False,
           alternate=True,
-          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, dataset="caltech101", agent_batch_size=8):
+          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, dataset="caltech101", agent_batch_size=32):
     #torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
@@ -394,11 +394,11 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         cum_sum = 0
         p_loss = 0
         v_loss = 0
-        k_step = 5
+        k_step = 10
 
         pos_reward = 1
-        neg_reward = -0.01
-        gamma = 0.9
+        neg_reward = 0
+        gamma = 0.99
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
         unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
