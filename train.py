@@ -108,13 +108,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
-    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent,
-    #                                     verbose=verbose)
-    # print('[Test] ACC: {:.4f} '.format(accuracy))
-    # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-    #
-    #
-    # summarize(writer, "test", -1, accuracy)
+    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent,
+                                        verbose=verbose)
+    print('[Test] ACC: {:.4f} '.format(accuracy))
+    print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+
+
+    summarize(writer, "test", -1, accuracy)
 
     model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
 
@@ -395,8 +395,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         p_loss = 0
         v_loss = 0
         k_step = 10
-
-        pos_reward = 1
+        sparse = True
+        pos_reward = 1 if sparse else 1/49
         neg_reward = 0
         gamma = 0.99
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
@@ -416,7 +416,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
             preds, action_probs, model_probs, rewards, action_sequence, states = rl_training(agent, bs, inputs, labels,
                                                                                              model,
-                                                                             correct_only=not use_baseline)
+                                                                             sparse=sparse)
 
             rewards[rewards > 0] = pos_reward
             rewards[rewards <= 0] = neg_reward
@@ -625,7 +625,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     return sequence
 
 
-def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1):
+def rl_training(agent, bs, inputs, labels, model, sparse=False, k_steps=1):
 
     resize = Resize(35)
     patches_per_side = 7
@@ -675,10 +675,11 @@ def rl_training(agent, bs, inputs, labels, model, correct_only=False, k_steps=1)
                     c = (a % patches_per_side) * size
                     state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
-            # outputs = model(inputs, sequence)
-            # probs, preds = torch.max(outputs, -1)
-            # reward = (preds == labels).long().squeeze()
-            # rewards[:, i] = reward.float()
+            if not sparse:
+                outputs = model(inputs, sequence)
+                probs, preds = torch.max(outputs, -1)
+                reward = (preds == labels).long().squeeze()
+                rewards[:, i] = reward.float()
     outputs = model(inputs, sequence)
     probs, preds = torch.max(outputs, -1)
     reward = (preds == labels).long().squeeze()
