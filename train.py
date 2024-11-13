@@ -291,7 +291,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         batch_count = 0
         resize = Resize(35)
         value_criterion = torch.nn.MSELoss(reduction="mean")
-        criterion = torch.nn.CrossEntropyLoss(reduction="mean", label_smoothing=0.5)
+        criterion = torch.nn.CrossEntropyLoss(reduction="mean", label_smoothing=0.7)
         for inputs, labels in tqdm(loader, disable=not verbose):
 
 
@@ -397,7 +397,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         k_step = 10
         sparse = True
         pos_reward = 1 if sparse else 1/49
-        neg_reward = 0
+        neg_reward = -0.01 * pos_reward
         gamma = 0.99
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
@@ -587,9 +587,9 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
         logits, _, hidden = agent(state.detach(), hidden)
 
         action_probs = torch.softmax(logits, dim=-1)
-        dist = Categorical(action_probs)
-        action = dist.sample()
-        #action = torch.argmax(action_probs, dim=-1)
+        # dist = Categorical(action_probs)
+        # action = dist.sample()
+        action = torch.argmax(action_probs, dim=-1)
         action[completeness_mask.bool()] = 49
         sequence[:, i] = action
         completeness_mask = completeness_mask | torch.eq(action, 49).byte()
