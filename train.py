@@ -108,7 +108,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
-    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent,
+    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
                                         verbose=verbose)
     print('[Test] ACC: {:.4f} '.format(accuracy))
     print(f'[Test] CLASS ACC: {class_accuracy} @-1')
@@ -291,7 +291,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         batch_count = 0
         resize = Resize(35)
         value_criterion = torch.nn.MSELoss(reduction="mean")
-        criterion = torch.nn.CrossEntropyLoss(reduction="mean", label_smoothing=0.7)
+        criterion = torch.nn.CrossEntropyLoss(reduction="mean", label_smoothing=0.8)
         for inputs, labels in tqdm(loader, disable=not verbose):
 
 
