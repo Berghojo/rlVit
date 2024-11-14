@@ -321,15 +321,20 @@ class OwnEncoderBlock(nn.Module):
         self.ln_2 = norm_layer(hidden_dim)
         self.mlp = MLPBlock(hidden_dim, mlp_dim, dropout)
 
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
 
         input, mask = input
         torch._assert(input.dim() == 3, f"Expected (batch_size, seq_length, hidden_dim) got {input.shape}")
         x = self.ln_1(input)
         S = input.shape[1]
-        causal_mask = torch.tril(torch.ones(S, S, device=input.device))
+        causal_mask = torch.triu(torch.ones(S, S, device=input.device))
+        causal_mask = causal_mask.roll(1, -1)
+        causal_mask[0] = 0
+        causal_mask[:, 0] = 0
 
-        x, _ = self.self_attention(x, x, x, need_weights=False, key_padding_mask=mask, attn_mask=causal_mask, is_causal=True)
+        #causal_mask =None
+        x, _ = self.self_attention(x, x, x, need_weights=False, key_padding_mask=mask, attn_mask=causal_mask)
         x = self.dropout(x)
         x = x + input
 
