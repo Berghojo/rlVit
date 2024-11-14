@@ -108,13 +108,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
-    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
-                                        verbose=verbose)
-    print('[Test] ACC: {:.4f} '.format(accuracy))
-    print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-
-
-    summarize(writer, "test", -1, accuracy)
+    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, None,
+    #                                     verbose=verbose)
+    # print('[Test] ACC: {:.4f} '.format(accuracy))
+    # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+    #
+    #
+    # summarize(writer, "test", -1, accuracy)
 
     model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
 

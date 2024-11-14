@@ -281,6 +281,7 @@ class ViT(torch.nn.Module):
         if permutation is not None:
             mask = permutation == self.n_patch-1
             mask = torch.cat([torch.zeros((mask.shape[0], 1), device=mask.device), mask], dim=1)
+
         x = [x]
         for i in range(len(self.parallel_encoders)-1):
             x = self.fusion_layers[i](self.parallel_encoders[i](x, mask))
@@ -330,8 +331,9 @@ class OwnEncoderBlock(nn.Module):
         S = input.shape[1]
         causal_mask = torch.triu(torch.ones(S, S, device=input.device))
         causal_mask = causal_mask.roll(1, -1)
+        causal_mask[:, 0] = 1
         causal_mask[0] = 0
-        causal_mask[:, 0] = 0
+
 
         #causal_mask =None
         x, _ = self.self_attention(x, x, x, need_weights=False, key_padding_mask=mask, attn_mask=causal_mask)
