@@ -48,7 +48,8 @@ def set_deterministic(seed=2408):
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False,
           alternate=True,
-          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, dataset="caltech101", agent_batch_size=32):
+          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, dataset="caltech101",
+          agent_batch_size=32, hier=True):
     #torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
@@ -66,7 +67,7 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     agent_train_loader, _ = get_loader(img_size, agent_batch_size, dataset=dataset)
     if reinforce:
         print("Reinforce")
-        agent = SingleActionAgent(49)
+        agent = SingleActionAgent(49) if not hier else HierachicalAgent(49)
         if agent_model is not None:
             new_state_dict = OrderedDict()
             mydic = torch.load(agent_model, map_location="cpu")
@@ -108,13 +109,13 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
-    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent,
-                                        verbose=verbose)
-    print('[Test] ACC: {:.4f} '.format(accuracy))
-    print(f'[Test] CLASS ACC: {class_accuracy} @-1')
-
-
-    summarize(writer, "test", -1, accuracy)
+    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent,
+    #                                     verbose=verbose)
+    # print('[Test] ACC: {:.4f} '.format(accuracy))
+    # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+    #
+    #
+    # summarize(writer, "test", -1, accuracy)
 
     model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
 
@@ -329,7 +330,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             for a in range(init):
 
                 with torch.no_grad():
-                    _, _, hidden = agent(state.detach(), hidden)
+                    _, _, hidden , _, _, _ = agent(state.detach(), hidden)
                 action = sequence[:, a]
                 for i in range(bs):
                     r = (action[i] // patches_per_side) * size
@@ -353,7 +354,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 optimizer.zero_grad(set_to_none=True)
                 with (torch.amp.autocast(device_type="cuda", dtype=torch.float16)):
                     pseudo_labels = ls[:, f]
-                    logits, value, hidden = agent(state.detach(), hidden)
+                    logits, value, hidden, _, m_value, _ = agent(state.detach(), hidden)
                     action_probs = torch.softmax(logits, dim=-1)
                     probs, action = torch.max(action_probs, dim=-1)
                 sequence[:, random_idx] = action
@@ -369,8 +370,8 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 rewards = (preds == labels).to(torch.half)
                 #rewards = torch.ones_like(value, device=device)
                 value_loss = value_criterion(value.squeeze(), rewards.squeeze())
-
-                loss = criterion(logits, pseudo_labels.long().detach()) + 0.5 * value_loss
+                m_value_loss = value_criterion(m_value.squeeze(), rewards.squeeze())
+                loss = criterion(logits, pseudo_labels.long().detach()) + 0.5 * value_loss + 0.5 * m_value_loss
                 correct += (torch.sum((torch.argmax(logits, dim=-1) == pseudo_labels.long())))
                 n_items += inputs.size(0)
                 running_loss += (loss.item())
@@ -394,6 +395,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         cum_sum = 0
         p_loss = 0
         v_loss = 0
+        horizon = 7
         k_step = 10
         sparse = True
         pos_reward = 1 if sparse else 1/49
@@ -402,7 +404,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
         unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
-
+        d_cos = nn.CosineSimilarity(dim=-1, eps=1e-6)
         for inputs, labels in tqdm(loader, disable=not verbose):
             optimizer.zero_grad(set_to_none=True)
 
@@ -414,7 +416,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             labels = labels.type(torch.LongTensor)
             labels = labels.to(device)
 
-            preds, action_probs, model_probs, rewards, action_sequence, states = rl_training(agent, bs, inputs, labels,
+            preds, model_probs, rewards, action_sequence, states = rl_training(agent, bs, inputs, labels,
                                                                                              model,
                                                                              sparse=sparse)
 
@@ -426,25 +428,36 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             rewards[reward_mask] = 0
             discounted_rewards = torch.zeros_like(rewards, dtype=torch.float)
             all_action_probs = torch.zeros_like(action_sequence, dtype=torch.float)
+            intrinsic_rewards = torch.zeros_like(rewards, dtype=torch.float)
+            seq_len = rewards.shape[1]
             all_values = torch.zeros_like(rewards, dtype=torch.float)
             new_values = torch.zeros_like(rewards, dtype=torch.float)
-            seq_len = rewards.shape[1]
+            manager_values = torch.zeros((bs, seq_len), dtype=torch.float, device=device)
+            manager_states = torch.zeros((bs, seq_len, 128), dtype=torch.float, device=device)
+            manager_state_diff = torch.zeros_like(manager_states, dtype=torch.float)
+            goals = torch.zeros((bs, seq_len, 128), dtype=torch.float, device=device)
+
             hidden = agent.module.init_state(bs)
 
-            for s in range(seq_len):
-                actions, value, hidden = agent(states[:, s], hidden=hidden)
+
+            for s in range(seq_len+1):
+                actions, value, hidden, goal, m_value, m_state = agent(states[:, s], hidden=hidden)
+
 
                 value = value.squeeze()
 
                 actions = torch.softmax(actions, dim=-1)
                 if s < seq_len:
+                    manager_values[:, s] = m_value.squeeze()
+                    manager_states[:, s] = m_state.detach()
+                    goals[:, s] = goal
                     all_values[:, s] = value
                     sequence = action_sequence[:, s]
 
                     all_action_probs[:, s] = actions.gather(-1, sequence.unsqueeze(-1)).squeeze()
 
                 if s > 0:
-                    new_values[:, s - 1] = value.detach() * (~reward_mask[:, s]).long()
+                    new_values[:, s - 1] = value.detach() #* (~reward_mask[:, s-1]).long()
 
                 # VisualizeStateActionPair(old_states, sequence)
 
@@ -470,12 +483,25 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 else:
 
                     discounted_rewards[:, i] = torch.sum(rewards[:, i:] * gamma_tensor[:, :seq_len - i], dim=-1)
+                if i < (seq_len - horizon):
 
+                    manager_state_diff[:, i] = manager_states[:, i + horizon] - manager_states[:, i]
+                else:
+                    manager_state_diff[:, i] = manager_states[:, -1] - manager_states[:, i]
+                if i > 0:
+                    for h in range(1, horizon + 1):
+                        if i - h < 0:
+                            continue
+                        intrinsic_rewards[:, i - 1] += d_cos(manager_states[:, i] - manager_states[:, i - h],
+                                                             goals[:, i - h])
+
+                    intrinsic_rewards[:, i - 1] = intrinsic_rewards[:, i - 1] / min(horizon, i)
             all_values[reward_mask] = 0
             all_action_probs[reward_mask] = 0
-
+            manager_values[reward_mask] = 0
+            intrinsic_rewards[reward_mask] = 0
             loss, policy_loss, value_loss, advantage = loss_func(all_action_probs.squeeze(), all_values.squeeze(),
-                                                      discounted_rewards, ~reward_mask)
+                                                      discounted_rewards, ~reward_mask, manager_state_diff.detach(), goals, manager_values, intrinsic_rewards.detach())
 
             loss = torch.mean(loss)
             scaler.scale(loss).backward()
@@ -584,7 +610,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
     size = state.shape[2] // patches_per_side
     hidden = agent.module.init_state(bs)
     for i in range(49):
-        logits, _, hidden = agent(state.detach(), hidden)
+        logits, _, hidden, _, _, _ = agent(state.detach(), hidden)
 
         action_probs = torch.softmax(logits, dim=-1)
         dist = Categorical(action_probs)
@@ -644,7 +670,7 @@ def rl_training(agent, bs, inputs, labels, model, sparse=False, k_steps=1):
     #baseline = torch.gather(torch.softmax(og_baseline, dim=-1), -1, labels.unsqueeze(-1))
     states[:, 0] = state
     sequence = torch.full((bs, 49), 49, device=inputs.device, dtype=torch.long)
-    sequence_probs = torch.zeros((bs, 49, 50), device=inputs.device)
+
     values = torch.zeros((bs, 49), device=inputs.device)
     size = state.shape[2] // patches_per_side
     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
@@ -652,19 +678,17 @@ def rl_training(agent, bs, inputs, labels, model, sparse=False, k_steps=1):
     hidden = agent.module.init_state(bs)
     for i in range(49):
         with torch.no_grad():
-            logits, value, hidden = agent(state.detach(), hidden)
+            logits, value, hidden, _, _, _ = agent(state.detach(), hidden)
 
             action_probs = torch.softmax(logits, dim=-1)
             dist = Categorical(action_probs)
             action = dist.sample() #torch.argmax(action_probs, dim=-1)
-            completeness_mask = completeness_mask | torch.eq(action, 49).byte()
-            sequence_probs[:, i] = action_probs
-            action[completeness_mask.bool()] = 49
 
-            if i > 0:
-                last_token_mask = (sequence[:, i - 1] < 49)
-                last_token_mask = torch.logical_and(last_token_mask, completeness_mask.bool())
-                action[last_token_mask] = 50
+            last_token_mask = torch.logical_and(~completeness_mask.bool(), torch.eq(action, 49).byte())
+            action[last_token_mask] = 50
+
+            action[completeness_mask.bool()] = 49
+            completeness_mask = completeness_mask | torch.eq(action, 50).byte()
             sequence[:, i] = action
             values[:, i] = value.squeeze()
 
@@ -690,13 +714,15 @@ def rl_training(agent, bs, inputs, labels, model, sparse=False, k_steps=1):
     #     reward = (normal - baseline).squeeze()
     #     reward[reward == 0] = 0.001 #Equality to baseline should be rewarded?
     insert_mask = (sequence == 50)
+
     insert_mask = torch.cat((insert_mask[:, 1:], torch.zeros((bs, 1), dtype=torch.bool, device=inputs.device)), dim=-1)
+
     not_yet_done = ~torch.any(insert_mask, dim=-1)
     insert_mask[not_yet_done, -1] = True
 
     rewards[insert_mask] = reward.float()
 
-    return preds, sequence_probs, probs, rewards, sequence, states
+    return preds, probs, rewards, sequence, states
 
 def step(states, rewards, sequence, preds, values, i):
     pass

@@ -8,7 +8,8 @@ def main(rank, world_size, args):
           verbose=args.verbose, img_size=args.img_size, batch_size=args.batch, agent_model=args.agent_path,
           warmup=args.warmup, use_baseline=args.baseline
           , logging=args.logging, alternate=args.alternate, rank=rank, world_size=world_size, agent_lr= args.agent_lr,
-          pretrain_lr=args.pretrain_lr, model_lr=args.model_lr, pretrained=args.pretrained, dataset=args.dataset, agent_batch_size=args.agent_bs)
+          pretrain_lr=args.pretrain_lr, model_lr=args.model_lr, pretrained=args.pretrained, dataset=args.dataset,
+          agent_batch_size=args.agent_bs, hier= args.hierarchical)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RL-ViT arg parser")
@@ -48,6 +49,9 @@ if __name__ == "__main__":
     parser.add_argument('--no-pretrained', dest='pretrained', action='store_false')
     parser.set_defaults(pretrained=False)
 
+    parser.add_argument('--hierarchical', action='store_true')
+    parser.add_argument('--no-hierarchical', dest='hierarchical', action='store_false')
+    parser.set_defaults(hierarchical=True)
     args = parser.parse_args()
 
     world_size = torch.cuda.device_count()

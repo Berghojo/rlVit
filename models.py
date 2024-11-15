@@ -335,7 +335,7 @@ class OwnEncoderBlock(nn.Module):
         causal_mask[0] = 0
 
 
-        #causal_mask =None
+        causal_mask =None
         x, _ = self.self_attention(x, x, x, need_weights=False, key_padding_mask=mask, attn_mask=causal_mask)
         x = self.dropout(x)
         x = x + input
