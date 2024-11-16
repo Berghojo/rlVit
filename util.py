@@ -82,7 +82,7 @@ class CustomLoss(nn.Module):
     def __init__(self):
         super(CustomLoss, self).__init__()
         self.value_factor = 0.5
-        self.intrinsic_factor = 0.4
+        self.intrinsic_factor = 0.5
         self.manager_loss = ManagerLoss()
 
     def forward(self, policy_per_action, values, discounted_rewards, mask, state_diff, goals, manager_values, intrinsic_rewards):

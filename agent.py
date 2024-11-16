@@ -103,7 +103,7 @@ class HierachicalAgent(nn.Module):
             torch.zeros(batch_size, self.manager.lstm.hidden_size, requires_grad=self.training),
             torch.zeros(batch_size, self.manager.lstm.hidden_size, requires_grad=self.training)
         )
-    def forward(self, x: Tensor, hidden) -> Tensor:
+    def forward(self, x: Tensor, hidden, pretrain=False) -> Tensor:
         hidden_w, hidden_m = hidden
         x = self.relu(self.conv(x))
         x = self.dout(self.relu(self.conv_2(x)))
@@ -114,7 +114,7 @@ class HierachicalAgent(nn.Module):
         h_0, c_0 = hidden_w
         x_w, c_x = hidden_w = self.lstm(x, (h_0.detach(), c_0.detach()))
         #goal = self.goal_proj(goal)
-        x = torch.concat((x_w, goal.detach()), dim=-1)
+        x = torch.concat((x_w, goal.detach()), dim=-1) if not pretrain else torch.concat((x_w, goal), dim=-1)
         w_action = self.action(x)
         w_value = self.value(x_w)
         return w_action, w_value, (hidden_w, hidden_m), goal, m_value, m_state

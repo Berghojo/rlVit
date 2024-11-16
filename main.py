@@ -25,7 +25,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch", type=int, help="batch size", default=32)
     parser.add_argument("--agent_bs", type=int, help="agent rl batch size", default=32)
     parser.add_argument("--reward_type", type=str, help="sparse or dense",
-                        choices=["sparse", "dense"], default="spars")
+                        choices=["sparse", "dense"], default="sparse")
     parser.add_argument("--dataset", type=str, help="which dataset to use", choices=["cifar10", "cifar100", "caltech101"], default="caltech101")
     parser.add_argument("--img_size", type=int, help="height (width) of images)", default=224)
     parser.add_argument("--logging", type=int, help="number of epochs until loggin starts", default=5)

@@ -319,7 +319,6 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 rand_perm = torch.randperm(seq_len)
                 sequence[b] = sequence[b, rand_perm]
 
-
             # if len(sequence[i, :idx]) > 0:
             #     pseudo_labels[i, sequence[i, :idx]] = (1-label_smoothing) / len(sequence[i, :idx])
             # else:
@@ -331,11 +330,11 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 with torch.no_grad():
                     _, _, hidden , _, _, _ = agent(state.detach(), hidden)
-                action = sequence[:, a]
-                for i in range(bs):
-                    r = (action[i] // patches_per_side) * size
-                    c = (action[i] % patches_per_side) * size
-                    state[i, :, r:r + size, c:c + size] = input_small[i, :, r:r + size, c:c + size].clone()
+                    action = sequence[:, a]
+                    for i in range(bs):
+                        r = (action[i] // patches_per_side) * size
+                        c = (action[i] % patches_per_side) * size
+                        state[i, :, r:r + size, c:c + size] = input_small[i, :, r:r + size, c:c + size].clone()
 
             # if batch_count % 10 == 0:
             #     i = 1
@@ -354,7 +353,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
                 optimizer.zero_grad(set_to_none=True)
                 with (torch.amp.autocast(device_type="cuda", dtype=torch.float16)):
                     pseudo_labels = ls[:, f]
-                    logits, value, hidden, _, m_value, _ = agent(state.detach(), hidden)
+                    logits, value, hidden, _, m_value, _ = agent(state.detach(), hidden, pretrain = True)
                     action_probs = torch.softmax(logits, dim=-1)
                     probs, action = torch.max(action_probs, dim=-1)
                 sequence[:, random_idx] = action
