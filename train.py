@@ -117,9 +117,9 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
     #
     # summarize(writer, "test", -1, accuracy)
 
-    model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
+    model_optimizer = optim.RMSprop(model.parameters(), lr=model_lr)
 
-    scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, model_lr * 5, steps_per_epoch=len(train_loader),
+    scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, model_lr * 3, steps_per_epoch=len(train_loader),
                                               epochs=max_epochs - pretraining_duration)
     scaler = GradScaler()
 
@@ -143,19 +143,19 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                 scheduler.step(acc)
 
             else:
-
-                agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(agent_train_loader, device, model,
-                                                                                      agent_optimizer, scaler, agent,
-                                                                                      train_agent=True, verbose=verbose,
-                                                                                      pretrain=False,
-                                                                                      use_baseline=use_baseline,
-                                                                                      scheduler=agent_scheduler)
                 if alternate:
                     loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
                                           train_agent=False,
                                           verbose=verbose, scheduler=scheduler)
 
                     summarize(writer, "train", epoch, acc, loss)
+                agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(agent_train_loader, device, model,
+                                                                                      agent_optimizer, scaler, agent,
+                                                                                      train_agent=True, verbose=verbose,
+                                                                                      pretrain=False,
+                                                                                      use_baseline=use_baseline,
+                                                                                      scheduler=agent_scheduler)
+
                 summarize_agent(writer, "train_agent", epoch, cum_reward, value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
