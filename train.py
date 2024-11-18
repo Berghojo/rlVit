@@ -608,6 +608,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
 
     size = state.shape[2] // patches_per_side
     hidden = agent.module.init_state(bs)
+    img_list = []
     for i in range(49):
         logits, _, hidden, _, _, _ = agent(state.detach(), hidden)
 
@@ -624,29 +625,29 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
                 r = (a // patches_per_side) * size
                 c = (a % patches_per_side) * size
                 state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
-                # if img == 0:
-                #     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
-                #     image = unnormalize(state)
-                #     plt.imshow(image[0].permute(1, 2, 0).cpu())
-                #     plt.xlabel(a.item())
-                #     plt.savefig(f"imgs/{img}_max__new.jpg")
-
-        # if bs == 1:
-        #     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
-        #     image = unnormalize(state)
-        #
-        #     image[0, :, r, c:c + size] = 0
-        #     image[0, :, r + size - 1, c:c + size] = 0
-        #     image[0, :, r:r + size, c] = 0
-        #     image[0, :, r:r + size, c + size - 1] = 0
-        #     image[0, 0, r, c:c + size] = 1
-        #     image[0, 0, r + size - 1, c:c + size] = 1
-        #     image[0, 0, r:r + size, c] = 1
-        #     image[0, 0, r:r + size, c + size - 1] = 1
-        #     plt.imshow(image[0].permute(1, 2, 0).cpu())
-        #     plt.xlabel(action[0].item())
-        #     plt.savefig(f"imgs/{i}_max__new.jpg")
-
+    #             ine = 5
+    #             if img == ine:
+    #                 unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
+    #                 image = unnormalize(state)
+    #                 img_list.append(image[ine].permute(1, 2, 0).cpu())
+    # print(len(img_list))
+    # margin = 50  # pixels
+    # spacing = 35  # pixels
+    # dpi = 100.  # dots per inch
+    # width = (400 + 200 + 2 * margin + spacing) / dpi  # inches
+    # height = (180 + 180 + 2 * margin + spacing) / dpi
+    # left = margin / dpi / width  # axes ratio
+    # bottom = margin / dpi / height
+    # wspace = spacing / float(200)
+    # fig, axes = plt.subplots(7, 7, figsize=(width, height), dpi=dpi)
+    # fig.subplots_adjust(left=left, bottom=bottom, right=1. - left, top=1. - bottom,
+    #                     wspace=wspace, hspace=wspace)
+    #
+    # for ax, img, label in zip(axes.flatten(), img_list, sequence[ine]):
+    #     ax.axis('off')
+    #     ax.imshow(img)
+    # plt.show()
+    # raise Exception
     return sequence
 
 
