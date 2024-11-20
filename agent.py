@@ -80,11 +80,12 @@ class HierachicalAgent(nn.Module):
         self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
         self.fc = nn.Linear(35 * 35 * 32, self.d)
         self.lstm = nn.LSTMCell(self.d, self.k)
-        self.action = nn.Linear(self.k + self.d, n_patches+1)
+        self.action = nn.Linear(self.k * 2, n_patches+1)
         self.value = nn.Linear(self.k, 1)
         self.relu = nn.ReLU()
         self._reset_parameters()
         self.dout = nn.Dropout(p=0.2)
+        self.goal_proj = nn.Linear(self.d, self.k)
 
     def _reset_parameters(self):
         for p in self.parameters():
@@ -110,11 +111,11 @@ class HierachicalAgent(nn.Module):
         x = x.flatten(1)
 
         x = self.relu(self.fc(x))
-        goal, m_value, m_state, hidden_m = self.manager(x, hidden_m)
+        goal_m, m_value, m_state, hidden_m = self.manager(x, hidden_m)
         h_0, c_0 = hidden_w
         x_w, c_x = hidden_w = self.lstm(x, (h_0.detach(), c_0.detach()))
-        #goal = self.goal_proj(goal)
-        x = torch.concat((x_w, goal.detach()), dim=-1) if not pretrain else torch.concat((x_w, goal), dim=-1)
+        goal = self.goal_proj(goal_m.detach())
+        x = torch.concat((x_w, goal), dim=-1)
         w_action = self.action(x)
         w_value = self.value(x_w)
-        return w_action, w_value, (hidden_w, hidden_m), goal, m_value, m_state
+        return w_action, w_value, (hidden_w, hidden_m), goal_m, m_value, m_state
