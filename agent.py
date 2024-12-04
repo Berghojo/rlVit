@@ -11,9 +11,9 @@ import numpy as np
 class SingleActionAgent(nn.Module):
     def __init__(self, n_patches):
         super(SingleActionAgent, self).__init__()
-        self.conv = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
-        self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
-        self.fc = nn.Linear(35 * 35 * 32, 128)
+        self.conv = nn.Conv2d(3, 16, kernel_size=2, stride=1, padding="same")
+        self.conv_2 = nn.Conv2d(16, 32, kernel_size=2, stride=1, padding="same")
+        self.fc = nn.Linear(5 * 5 * 32, 128)
         self.lstm = nn.LSTMCell(128, 128)
         self.action = nn.Linear(128, n_patches+1)
         self.value = nn.Linear(128, 1)
@@ -52,9 +52,9 @@ class SingleActionAgent(nn.Module):
 class HierachicalAgent(nn.Module):
     def __init__(self, n_patches):
         super(HierachicalAgent, self).__init__()
-        self.conv = nn.Conv2d(3, 16, kernel_size=5, stride=1, padding="same")
-        self.conv_2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding="same")
-        self.fc = nn.Linear(35 * 35 * 32, 128)
+        self.conv = nn.Conv2d(3, 16, kernel_size=2, stride=1, padding="same")
+        self.conv_2 = nn.Conv2d(16, 32, kernel_size=2, stride=1, padding="same")
+        self.fc = nn.Linear(5 * 5 * 32, 128)
         self.lstm = nn.LSTMCell(128, 128)
         self.action = nn.Linear(128, n_patches+1)
         self.value = nn.Linear(128, 1)

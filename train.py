@@ -24,7 +24,7 @@ from data import *
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12356'
 
     # initialize the process group
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
@@ -48,7 +48,8 @@ def set_deterministic(seed=2408):
 def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pretrained=False, agent_model=None,
           verbose=True, img_size=224, base_vit=False, batch_size=32, warmup=10, logging=10, use_baseline=False,
           alternate=True,
-          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, dataset="caltech101", agent_batch_size=32):
+          rank=0, world_size=1, agent_lr=1e-5, pretrain_lr=2e-4, model_lr=1e-4, dataset="caltech101",
+          agent_batch_size=32, hier=True):
     #torch.autograd.set_detect_anomaly(True)
 
     setup(rank, world_size)
@@ -108,17 +109,17 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
 
         model = model.to(rank)
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
-    class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent,
-                                        verbose=verbose)
-    print('[Test] ACC: {:.4f} '.format(accuracy))
-    print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+    # class_accuracy, accuracy = eval_vit(model, device, test_loader, n_classes, agent,
+    #                                     verbose=verbose)
+    # print('[Test] ACC: {:.4f} '.format(accuracy))
+    # print(f'[Test] CLASS ACC: {class_accuracy} @-1')
+    #
+    #
+    # summarize(writer, "test", -1, accuracy)
 
+    model_optimizer = optim.RMSprop(model.parameters(), lr=model_lr)
 
-    summarize(writer, "test", -1, accuracy)
-
-    model_optimizer = optim.Adam(model.parameters(), lr=model_lr)
-
-    scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, model_lr * 5, steps_per_epoch=len(train_loader),
+    scheduler = optim.lr_scheduler.OneCycleLR(model_optimizer, model_lr * 3, steps_per_epoch=len(train_loader),
                                               epochs=max_epochs - pretraining_duration)
     scaler = GradScaler()
 
@@ -142,19 +143,19 @@ def train(model_name, n_classes, max_epochs, base_model=None, reinforce=True, pr
                 scheduler.step(acc)
 
             else:
-
-                agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(agent_train_loader, device, model,
-                                                                                      agent_optimizer, scaler, agent,
-                                                                                      train_agent=True, verbose=verbose,
-                                                                                      pretrain=False,
-                                                                                      use_baseline=use_baseline,
-                                                                                      scheduler=agent_scheduler)
                 if alternate:
                     loss, acc, = train_rl(train_loader, device, model, model_optimizer, scaler, agent,
                                           train_agent=False,
                                           verbose=verbose, scheduler=scheduler)
 
                     summarize(writer, "train", epoch, acc, loss)
+                agent_loss, agent_acc, policy_loss, value_loss, cum_reward = train_rl(agent_train_loader, device, model,
+                                                                                      agent_optimizer, scaler, agent,
+                                                                                      train_agent=True, verbose=verbose,
+                                                                                      pretrain=False,
+                                                                                      use_baseline=use_baseline,
+                                                                                      scheduler=agent_scheduler)
+
                 summarize_agent(writer, "train_agent", epoch, cum_reward, value_loss, policy_loss)
                 summarize(writer, "train_agent", epoch, agent_acc, agent_loss)
 
@@ -317,7 +318,6 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             for b in range(bs):
                 rand_perm = torch.randperm(seq_len)
                 sequence[b] = sequence[b, rand_perm]
-
 
             # if len(sequence[i, :idx]) > 0:
             #     pseudo_labels[i, sequence[i, :idx]] = (1-label_smoothing) / len(sequence[i, :idx])
@@ -571,8 +571,13 @@ def VisualizeStateActionPair(old_states, sequence):
 
 def generate_max_agent(agent, bs, inputs, patches_per_side):
     resize = Resize(35)
-    input_small = resize(inputs)
-    state = torch.zeros_like(input_small, device=inputs.device)
+    patch_width = int(35 / 7)
+    unfold = torch.nn.Unfold(kernel_size=patch_width, stride=patch_width)
+
+    input_small = unfold(resize(inputs))
+    actions = input_small.view(bs, 3, patch_width, patch_width, -1).permute(0, 4, 1, 2, 3)
+
+    state = torch.zeros_like(actions[:, 0], device=inputs.device)
     mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
     std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
     normalize = Normalize(mean=mean, std=std)
@@ -596,15 +601,7 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
         for img in range(bs):
             a = action[img]
             if a != 49:
-                r = (a // patches_per_side) * size
-                c = (a % patches_per_side) * size
-                state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
-                # if img == 0:
-                #     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
-                #     image = unnormalize(state)
-                #     plt.imshow(image[0].permute(1, 2, 0).cpu())
-                #     plt.xlabel(a.item())
-                #     plt.savefig(f"imgs/{img}_max__new.jpg")
+                state[img] = actions[img, a]
 
         # if bs == 1:
         #     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
@@ -630,14 +627,18 @@ def rl_training(agent, bs, inputs, labels, model, sparse=False, k_steps=1):
     resize = Resize(35)
     patches_per_side = 7
     bs = inputs.shape[0]
+    patch_width = int(35 / 7)
+    unfold = torch.nn.Unfold(kernel_size=patch_width, stride=patch_width)
 
-    input_small = resize(inputs)
-    state = torch.zeros_like(input_small, device=inputs.device)
+    input_small = unfold(resize(inputs))
+    actions = input_small.view(bs, 3, patch_width, patch_width, -1).permute(0, 4, 1, 2, 3)
+
+    state = torch.zeros_like(actions[:, 0], device=inputs.device)
     mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
     std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
     normalize = Normalize(mean=mean, std=std)
     state = normalize(state)
-    states = torch.zeros_like(input_small, device=inputs.device).unsqueeze(1).repeat(1, 50, 1, 1, 1)
+    states = torch.zeros_like(state, device=inputs.device).unsqueeze(1).repeat(1, 50, 1, 1, 1)
     completeness_mask = torch.zeros(bs).byte().to(inputs.device)
     rewards = torch.zeros((bs, 49), device=inputs.device)
     #og_baseline = model(inputs, None).detach()
@@ -671,9 +672,7 @@ def rl_training(agent, bs, inputs, labels, model, sparse=False, k_steps=1):
             for img in range(bs):
                 a = action[img]
                 if a < 49:
-                    r = (a // patches_per_side) * size
-                    c = (a % patches_per_side) * size
-                    state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+                    state[img] = actions[img, a]
             states[:, i + 1] = state
             if not sparse:
                 outputs = model(inputs, sequence)
