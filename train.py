@@ -303,7 +303,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
             seq_len = 49
             sequence = sequence.repeat(bs, 1)
             random_idx = random.randint(0, seq_len-1)
-            state = torch.zeros_like(input_small, device=device)
+            state = input_small
             mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
             std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
             normalize = Normalize(mean=mean, std=std)
@@ -330,11 +330,7 @@ def train_rl(loader, device, model, optimizer, scaler, agent, train_agent, verbo
 
                 with torch.no_grad():
                     _, _, hidden = agent(state.detach(), hidden)
-                action = sequence[:, a]
-                for i in range(bs):
-                    r = (action[i] // patches_per_side) * size
-                    c = (action[i] % patches_per_side) * size
-                    state[i, :, r:r + size, c:c + size] = input_small[i, :, r:r + size, c:c + size].clone()
+
 
             # if batch_count % 10 == 0:
             #     i = 1
@@ -572,7 +568,7 @@ def VisualizeStateActionPair(old_states, sequence):
 def generate_max_agent(agent, bs, inputs, patches_per_side):
     resize = Resize(35)
     input_small = resize(inputs)
-    state = torch.zeros_like(input_small, device=inputs.device)
+    state = input_small
     mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
     std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
     normalize = Normalize(mean=mean, std=std)
@@ -593,12 +589,12 @@ def generate_max_agent(agent, bs, inputs, patches_per_side):
         action[completeness_mask.bool()] = 49
         sequence[:, i] = action
         completeness_mask = completeness_mask | torch.eq(action, 49).byte()
-        for img in range(bs):
-            a = action[img]
-            if a != 49:
-                r = (a // patches_per_side) * size
-                c = (a % patches_per_side) * size
-                state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+        # for img in range(bs):
+        #     a = action[img]
+        #     if a != 49:
+        #         r = (a // patches_per_side) * size
+        #         c = (a % patches_per_side) * size
+        #         state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
                 # if img == 0:
                 #     unnormalize = Normalize((-mean / std).tolist(), (1.0 / std).tolist())
                 #     image = unnormalize(state)
@@ -632,7 +628,7 @@ def rl_training(agent, bs, inputs, labels, model, sparse=False, k_steps=1):
     bs = inputs.shape[0]
 
     input_small = resize(inputs)
-    state = torch.zeros_like(input_small, device=inputs.device)
+    state = input_small
     mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32)
     std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32)
     normalize = Normalize(mean=mean, std=std)
@@ -668,12 +664,12 @@ def rl_training(agent, bs, inputs, labels, model, sparse=False, k_steps=1):
             sequence[:, i] = action
             values[:, i] = value.squeeze()
 
-            for img in range(bs):
-                a = action[img]
-                if a < 49:
-                    r = (a // patches_per_side) * size
-                    c = (a % patches_per_side) * size
-                    state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
+            # for img in range(bs):
+            #     a = action[img]
+            #     if a < 49:
+            #         r = (a // patches_per_side) * size
+            #         c = (a % patches_per_side) * size
+            #         state[img, :, r:r + size, c:c + size] = input_small[img, :, r:r + size, c:c + size].clone()
             states[:, i + 1] = state
             if not sparse:
                 outputs = model(inputs, sequence)
